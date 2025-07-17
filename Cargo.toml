@@ -4,7 +4,7 @@
  authors = ["Ashwin Rajhans <ashwinrajhansofficial@gmail.com>"]
  description = "A BPE Tokenizer developed in Rust. "
  edition = "2024"
- license = "Apache 2.0"
+ license = "Apache-2.0"
  repository = "https://github.com/AlgoBrother/MayaTok-BPE"
  readme = "README.md"
  keywords = ["tokenizer", "bpe", "rust", "nlp"]
