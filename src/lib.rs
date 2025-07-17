@@ -4,9 +4,9 @@ use pyo3::{prelude::*, types::PyIterator};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 
 mod text_normalizer;
-mod bpe_optmized_lib;
-mod serialize_string;
-pub use bpe_optmized_lib::{BPETokenizer, BPEStats, BatchEncodingConfig, TrainingConfig, TokenizerError, IncrementalTrainingConfig, IncrementalTrainingState};
+mod bpe_tokenizer_lib;
+
+pub use bpe_tokenizer_lib::{BPETokenizer, BPEStats, BatchEncodingConfig, TrainingConfig, TokenizerError, IncrementalTrainingConfig, IncrementalTrainingState};
 
 // Function to convert Rust's TokenizerError to PyO3's PyErr
 impl From<TokenizerError> for PyErr {
