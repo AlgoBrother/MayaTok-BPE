@@ -1,7 +1,14 @@
  [package]
- name = "bpe_tokenizer"
+ name = "mayatok-bpe"
  version = "0.1.0"
+ authors = ["Ashwin Rajhans <ashwinrajhansofficial@gmail.com>"]
+ description = "A BPE Tokenizer developed in Rust. "
  edition = "2024"
+ license = "Apache 2.0"
+ repository = "https://github.com/AlgoBrother/MayaTok-BPE"
+ readme = "README.md"
+ keywords = ["tokenizer", "bpe", "rust", "nlp"]
+ categories = ["text-processing", "machine-learning"]
 
  [dependencies]
  ahash = "0.8.12"
@@ -20,7 +27,7 @@
  unicode-normalization = "0.1"
 
  [lib]
-name = "bpe_tokenizer_py"
+name = "mayatok_bpe"
 crate-type = ["cdylib"]
 
 [profile.release]

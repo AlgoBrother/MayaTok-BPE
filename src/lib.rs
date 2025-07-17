@@ -544,7 +544,7 @@ impl From<BPEStats> for PyBPEStats {
 
 // This macro creates the Python module
 #[pymodule]
-fn bpe_tokenizer_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn mayatok_bpe(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTrainConfig>()?;
     m.add_class::<PyIncrementalTrainingConfig>()?;
     m.add_class::<PyIncrementalTrainingState>()?;

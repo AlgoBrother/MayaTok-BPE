@@ -1,4 +1,3 @@
-use rayon::result;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 use regex::Regex;
 use once_cell::sync::Lazy;

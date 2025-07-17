@@ -1,4 +1,5 @@
 // BYTE PAIR TOKENIZER SECTION
+#![allow(unused_variables, dead_code, unused_mut)]
 use core::{fmt};
 use std::{collections::HashSet, hash::Hash, cmp};
 use hashbrown::HashMap; 

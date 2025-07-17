@@ -52,26 +52,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 
 [[package]]
-name = "bpe_tokenizer"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "bincode",
- "crossbeam-channel",
- "hashbrown",
- "lazy_static",
- "num_cpus",
- "once_cell",
- "pyo3",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "thiserror",
- "unicode-normalization",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -189,6 +169,26 @@ name = "libc"
 version = "0.2.174"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776"
+
+[[package]]
+name = "mayatok-bpe"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "bincode",
+ "crossbeam-channel",
+ "hashbrown",
+ "lazy_static",
+ "num_cpus",
+ "once_cell",
+ "pyo3",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "unicode-normalization",
+]
 
 [[package]]
 name = "memchr"
