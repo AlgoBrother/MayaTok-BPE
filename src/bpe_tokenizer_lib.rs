@@ -1,13 +1,12 @@
-// OPTIMIZED BYTE PAIR TOKENIZER SECTION
+// BYTE PAIR TOKENIZER SECTION
 use core::{fmt};
 use std::{collections::HashSet, hash::Hash, cmp};
-use hashbrown::HashMap; // Use hashbrown for faster HashMaps
-use ahash::AHasher;     // Use AHasher for faster hashing
+use hashbrown::HashMap; 
+use ahash::AHasher;   
 use std::hash::BuildHasherDefault;
 use rayon::{prelude::*}; 
 use serde::{Serialize, Deserialize};
 use serde::de::Deserializer;
-// use crate::bpe_optmized::utils::cache::{self, LruCache};
 use crate::text_normalizer::TextNormalizer;
 
 extern crate serde;
@@ -386,7 +385,7 @@ impl Default for BPETokenizer {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct TokenPair(pub u32, pub u32);
+pub struct TokenPair(pub String, pub String);
 
 impl fmt::Display for TokenPair {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -486,16 +485,6 @@ impl BPETokenizer {
     }
 
 
-
-// The `unk_ids` function returns the ID associated with unknown tokens from a map of special token
-// IDs.
-//
-// Returns:
-// 
-// The `unk_ids` function is returning a `u32` value. This value is obtained by looking up the
-// `unknown_tokens` key in the `special_tokens_ids` map and returning the corresponding value. If the
-// key is not found in the map, the function will panic with the message "UNKNOWN TOKENS MUST BE
-// INITIALIZED IN SPECIAL TOKEN IDS".
     fn unk_ids(&self) -> u32 {
         *self.special_tokens_ids
             .get(&self.unknown_tokens)
@@ -1003,7 +992,6 @@ impl BPETokenizer {
             let has_pair = segment_ids.windows(2).any(|w| w[0] == pair_to_find.0 && w[1] == pair_to_find.1);
 
             if has_pair {
-                // This segment is affected by the merge. Process it.
                 
                 // 1. Decrement frequencies for all old pairs in this segment
                 if segment_ids.len() >= 2 {
@@ -1067,25 +1055,6 @@ impl BPETokenizer {
             self.reverse_vocab.entry(id).or_insert_with(|| token.clone());
         }
     }
-    
-    // Save checkpoint for incremental training
-    // pub fn save_checkpoint(&self, path: &str, state: &IncrementalTrainingState) -> Result<(), Box<dyn std::error::Error>> {
-    //     #[derive(Serialize)]
-    //     struct Checkpoint {
-    //         tokenizer: BPETokenizer,
-    //         state: IncrementalTrainingState,
-    //     }
-        
-    //     let checkpoint = Checkpoint {
-    //         tokenizer: self.clone(),
-    //         state: state.clone(),
-    //     };
-        
-    //     let file = File::create(path)?;
-    //     let writer = BufWriter::new(file);
-    //     serde_json::to_writer_pretty(writer, &checkpoint)?;
-    //     Ok(())
-    // }
 
     pub fn save_checkpoint(&self, path: &str, state: IncrementalTrainingState, format : &mut &str) -> Result<(), Box<dyn std::error::Error>> {
         #[derive(Serialize)]
