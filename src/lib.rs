@@ -5,7 +5,6 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 
 mod text_normalizer;
 mod bpe_tokenizer_lib;
-
 pub use bpe_tokenizer_lib::{BPETokenizer, BPEStats, BatchEncodingConfig, TrainingConfig, TokenizerError, IncrementalTrainingConfig, IncrementalTrainingState};
 
 // Function to convert Rust's TokenizerError to PyO3's PyErr
@@ -215,21 +214,6 @@ impl From<IncrementalTrainingState> for PyIncrementalTrainingState {
         }
     }
 }
-
-// impl From<PyIncrementalTrainingState> for IncrementalTrainingState {
-//     fn from(state: PyIncrementalTrainingState) -> Self {
-//         // Create a new state with the basic fields
-//         // The complex HashMaps need to be reconstructed from the actual tokenizer
-//         IncrementalTrainingState {
-//             chunks_processed: state.chunks_processed,
-//             total_documents: state.total_documents,
-//             current_vocab_size: state.current_vocab_size,
-//             last_merge_iteration: state.last_merge_iteration,
-//             word_segments: FastHashMap::default(),
-//             pair_freq: FastHashMap::default(),
-//         }
-//     }
-// }
 
 // Python class for BatchEncodingConfig
 #[pyclass(get_all, set_all)]
@@ -544,7 +528,7 @@ impl From<BPEStats> for PyBPEStats {
 
 // This macro creates the Python module
 #[pymodule]
-fn mayatok_bpe(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn bpe_tokenizer_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTrainConfig>()?;
     m.add_class::<PyIncrementalTrainingConfig>()?;
     m.add_class::<PyIncrementalTrainingState>()?;
