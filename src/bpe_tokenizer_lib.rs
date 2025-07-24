@@ -1,5 +1,4 @@
 // BYTE PAIR TOKENIZER SECTION
-#![allow(unused_variables, dead_code, unused_mut)]
 use core::{fmt};
 use std::{collections::HashSet, hash::Hash, cmp};
 use hashbrown::HashMap; 
@@ -7,7 +6,6 @@ use ahash::AHasher;
 use std::hash::BuildHasherDefault;
 use rayon::{prelude::*}; 
 use serde::{Serialize, Deserialize};
-use serde::de::Deserializer;
 use crate::text_normalizer::TextNormalizer;
 
 extern crate serde;
@@ -45,6 +43,22 @@ pub enum TokenizerError {
 }
 
 pub type TokenizedResult<T> = Result<T, TokenizerError>;
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Serialize, Deserialize)]
+pub struct TokenPair(pub u32, pub u32);
+
+impl TokenPair {
+    pub fn display(&self, tokenizer : &BPETokenizer) -> String {
+        format!("(\"{}\", \"{}\")", 
+            tokenizer.get_token_from_id(self.0), 
+            tokenizer.get_token_from_id(self.1))
+    }
+}
+
+impl fmt::Display for TokenPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(\"{}\", \"{}\")", self.0, self.1)
+    }
+}
 
 // Configuration for batch encoding
 pub struct BatchEncodingConfig{
@@ -108,11 +122,11 @@ impl Default for IncrementalTrainingConfig{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncrementalTrainingState {
     #[serde(serialize_with = "utils::non_string_map_serialization::serialize")]
-    pub word_segments: FastHashMap<Vec<u32>, usize>, // 
+    #[serde(deserialize_with = "utils::non_string_map_serialization::deserialize")] 
+    pub word_segments: FastHashMap<Vec<u32>, usize>,
 
-    #[serde(serialize_with = "utils::non_string_map_serialization::serialize")]
-    #[serde(skip)]
-    pub pair_freq : FastHashMap<TokenPair, usize>, // Frequency of token pairs
+    #[serde(skip_serializing, default)] 
+    pub pair_freq: FastHashMap<TokenPair, usize>, // Frequency of token pairs
     pub chunks_processed: usize,
     pub total_documents: usize,
     pub current_vocab_size: usize,
@@ -141,10 +155,7 @@ impl IncrementalTrainingState{
             }
             
             for window in segment_ids.windows(2) {
-                let pair = TokenPair(
-                    tokenizer.get_token_from_id(window[0]).clone(),
-                    tokenizer.get_token_from_id(window[1]).clone(),
-                );
+                let pair = TokenPair(window[0], window[1]);
                 *self.pair_freq.entry(pair).or_insert(0) += count;
             }
         }
@@ -212,7 +223,7 @@ pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<AHasher>>;
 pub mod utils {
 
     pub mod non_string_map_serialization {
-        use serde::{Serialize, Serializer};
+        use serde::{Serialize, Serializer, Deserialize, Deserializer};
         use hashbrown::HashMap; 
         use std::hash::{BuildHasher, Hash};
 
@@ -221,10 +232,18 @@ pub mod utils {
             S: Serializer,
             K: Serialize + Eq + Hash,
             V: Serialize,
-            H: BuildHasher, // Add the trait bound for the generic hasher
+            H: BuildHasher,
         {
             let vec: Vec<(&K, &V)> = map.iter().collect();
             vec.serialize(serializer)
+        }
+
+        pub fn deserialize<'de, D, K, V, H>(deserializer: D) -> Result<HashMap<K, V, H>, D::Error>
+        where
+            D: Deserializer<'de>, K: Deserialize<'de> + Eq + Hash, V: Deserialize<'de>, H: BuildHasher + Default,
+        {
+            let vec: Vec<(K, V)> = Vec::deserialize(deserializer)?;
+            Ok(vec.into_iter().collect())
         }
     }
 
@@ -332,12 +351,13 @@ impl Default for TrainingConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BPETokenizer {
     pub vocab: FastHashMap<String, u32>,
     #[serde(serialize_with = "utils::non_string_map_serialization::serialize")]
+    #[serde(deserialize_with = "utils::non_string_map_serialization::deserialize")]
     pub reverse_vocab: FastHashMap<u32, String>, // Reverse mapping for decoding
-    pub merges: Vec<(String, String)>,
+    pub merges: Vec<(TokenPair, u32)>, // List of merges applied during training
     pub unknown_tokens: String,
     pub special_tokens_ids: FastHashMap<String, u32>,
     pub end_of_word_token: String,
@@ -345,39 +365,8 @@ pub struct BPETokenizer {
     // cache for encoded results to avoid recomputing
     // This cache stores encoded results for previously seen texts to speed up repeated encodings.
     #[serde(skip)]
-    pub cache: utils::cache::LruCache<String, Vec<u32>>, 
-
+    pub cache: utils::cache::LruCache<String, Vec<u32>>,
 }
-
-impl<'de> Deserialize<'de> for BPETokenizer {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper {
-            vocab: FastHashMap<String, u32>,
-            reverse_vocab: FastHashMap<u32, String>,   
-            merges: Vec<(String, String)>,
-            unknown_tokens: String,
-            special_tokens_ids: FastHashMap<String, u32>,
-            end_of_word_token: String,
-        }
-
-        let helper = Helper::deserialize(deserializer)?;
-
-        Ok(BPETokenizer {
-            vocab: helper.vocab,
-            reverse_vocab: helper.reverse_vocab,
-            merges: helper.merges,
-            unknown_tokens: helper.unknown_tokens,
-            special_tokens_ids: helper.special_tokens_ids,
-            end_of_word_token: helper.end_of_word_token,
-            cache: utils::cache::LruCache::new(50_000),
-        })
-    }
-}
-
 
 impl Default for BPETokenizer {
     fn default() -> Self {
@@ -385,14 +374,7 @@ impl Default for BPETokenizer {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct TokenPair(pub String, pub String);
 
-impl fmt::Display for TokenPair {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(\"{}\", \"{}\")", self.0, self.1)
-    }
-}
 
 impl BPETokenizer {
     pub fn new() -> BPETokenizer {
@@ -410,9 +392,9 @@ impl BPETokenizer {
         let eow_token_value = config
             .special_tokens
             .iter()
-            .find(|&s| s == "</w>")
+            .find(|&s| s == "⁄")
             .cloned()
-            .unwrap_or_else(|| "</w>".to_string());
+            .unwrap_or_else(|| "⁄".to_string());
 
         // Vocab and ID tracking
         let mut vocab = FastHashMap::default();
@@ -485,28 +467,29 @@ impl BPETokenizer {
         }
     }
 
-
     fn unk_ids(&self) -> u32 {
         *self.special_tokens_ids
             .get(&self.unknown_tokens)
             .expect("UNKNOWN TOKENS MUST BE INITIALIZED IN SPECIAL TOKEN IDS")
     }
 
-    // Merge a pair of tokens in place
-    pub fn merge_pair_inplace(segments: &mut Vec<String>, pair: &TokenPair, new_token: &String) {
+
+    pub fn merge_pair_inplace(segments: &mut Vec<u32>, pair: &TokenPair, new_token_id: u32) {
         let mut write_idx = 0;
         let mut read_idx = 0;
 
         while read_idx < segments.len() {
-            if read_idx + 1 < segments.len() && segments[read_idx] == pair.0 && segments[read_idx + 1] == pair.1 {
+            if read_idx + 1 < segments.len() 
+                && segments[read_idx] == pair.0 
+                && segments[read_idx + 1] == pair.1 {
                 // Found pair to merge
-                segments[write_idx] = new_token.clone();
+                segments[write_idx] = new_token_id;
                 write_idx += 1;
                 read_idx += 2; // Skip both tokens of the pair
             } else {
                 // Keep token as is
                 if write_idx != read_idx {
-                    segments[write_idx] = segments[read_idx].clone();
+                    segments[write_idx] = segments[read_idx];
                 }
                 write_idx += 1;
                 read_idx += 1;
@@ -517,33 +500,17 @@ impl BPETokenizer {
         segments.truncate(write_idx);
     }
 
-    // Original merge method (kept for compatibility)
-    // pub fn merge_pair(segments: &[String], pair: &TokenPair, new_token: &String) -> Vec<String> {
-    //     let mut result: Vec<String> = Vec::new();
-    //     let mut i = 0;
-    //     while i < segments.len() {
-    //         if i + 1 < segments.len() && segments[i] == pair.0 && segments[i + 1] == pair.1 {
-    //             result.push(new_token.clone());
-    //             i += 2; // Fixed: was i += 1, should be i += 2
-    //         } else {
-    //             result.push(segments[i].clone());
-    //             i += 1;
-    //         }
-    //     }
-    //     result
-    // }
-
     // Check if word contains the pair before processing
-    fn _word_contains_pair(segments: &[String], pair: &TokenPair) -> bool {
+    fn _word_contains_pair(segments: &[u32], pair: &TokenPair) -> bool {
         segments.windows(2).any(|window| window[0] == pair.0 && window[1] == pair.1)
     }
 
     fn apply_merge_to_corpus_optimized(
         corpus_segments_map: &mut FastHashMap<Vec<u32>, usize>,
-        best_pair_ids: (u32, u32),
+        best_pair_ids: TokenPair,
         new_id: u32,
         reverse_vocab: &FastHashMap<u32, String>, // Use reverse_vocab instead of id_to_token
-        vocab: &FastHashMap<String, u32>, // Keeping vocab as read-only reference because I want to
+        _vocab: &FastHashMap<String, u32>, // Keeping vocab as read-only reference because I want to
         _eow_token: &String,
     ) {
         let mut new_corpus_segments_map: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
@@ -667,10 +634,7 @@ impl BPETokenizer {
                 }
                 let mut local_pair_counts: FastHashMap<TokenPair, usize> = FastHashMap::default();
                 for window in segments_ids.windows(2) {
-                    let pair = TokenPair(
-                        self.get_token_from_id(window[0]).clone(),
-                        self.get_token_from_id(window[1]).clone(),
-                    );
+                    let pair = TokenPair(window[0], window[1]);
                     *local_pair_counts.entry(pair).or_insert(0) += *count;
                 }
                 let mut global = global_pair_counts.lock().unwrap();
@@ -704,7 +668,7 @@ impl BPETokenizer {
             self.vocab.insert(new_token_str.clone(), new_id);
             self.reverse_vocab.insert(new_id, new_token_str.clone());
             current_ids += 1;
-            self.merges.push((best_pair.0.clone(), best_pair.1.clone()));
+            self.merges.push((TokenPair(best_pair.0.clone(), best_pair.1.clone()), new_id));
 
             if config.show_progress {
                 println!(
@@ -718,10 +682,7 @@ impl BPETokenizer {
                 
             }
 
-            let best_pair_ids = (
-                *self.vocab.get(best_pair.0.as_str()).expect("Token not found in vocab"),
-                *self.vocab.get(best_pair.1.as_str()).expect("Token not found in vocab")
-            );
+            let best_pair_ids = best_pair;
 
             Self::apply_merge_to_corpus_optimized(
                 &mut word_segments,
@@ -783,15 +744,24 @@ impl BPETokenizer {
                             state.chunks_processed, state.total_documents, self.vocab.len(),
                             (seg_mem + pair_mem) as f64 / 1_000_000.0);
                 }
+
+                if self.vocab.len() >= config.vocab_size {
+                    println!("✅ Target vocab size {} reached at chunk {}. Stopping training.", config.vocab_size, state.chunks_processed);
+                    break;
+                }
+
             }
         }
         
         // Process remaining documents
-        if !chunk_buffer.is_empty() {
+        if self.vocab.len() >= config.vocab_size {
+            println!("⚠️ Skipping leftover chunk: vocab size already reached.");
+        } else if !chunk_buffer.is_empty() {
             self.process_chunk_incremental(&chunk_buffer, &mut state, &normalizer, &config);
             state.chunks_processed += 1;
             state.total_documents += chunk_buffer.len();
         }
+
         
         // Final cleanup and merge pass
         state.aggressive_cleanup(1, 200); // More lenient for final pass
@@ -885,10 +855,8 @@ impl BPETokenizer {
             .map(|(segment_tokens, &count)| {
                 let mut local_freq = FastHashMap::default();
                 for window in segment_tokens.windows(2) {
-                    let pair = TokenPair(
-                        self.get_token_from_id(window[0]).clone(),
-                        self.get_token_from_id(window[1]).clone(),
-                    );
+                    let mut pair = TokenPair(window[0], window[1]);
+                    
                     *local_freq.entry(pair).or_insert(0) += count;
                 }
                 local_freq
@@ -902,9 +870,6 @@ impl BPETokenizer {
         // Merge the pair frequencies from all chunks
         state.pair_freq = pair_frequencies;
 
-
-        // Find the best pair using all CPU cores MWHAHAHAHAHAHAHHAHAHA sorry. 
-        // hmm, maybe I should made the cpu core choice dynamic for user? will think about it later.
 
         // Perform merges until vocabulary target or no more valid pairs
         let mut merges_this_round = 0;
@@ -920,8 +885,10 @@ impl BPETokenizer {
             if max_freq < config.min_frequency {
                 break;
             }
-            
-            let new_token_str = format!("{}{}", best_pair.0, best_pair.1);
+
+            let token1_str = self.get_token_from_id(best_pair.0);
+            let token2_str = self.get_token_from_id(best_pair.1);
+            let new_token_str = format!("{}{}", token1_str, token2_str);
             if self.vocab.contains_key(&new_token_str) {
                 state.pair_freq.remove(&best_pair);
                 continue;
@@ -931,7 +898,7 @@ impl BPETokenizer {
             let new_id = self.vocab.len() as u32;
             self.vocab.insert(new_token_str.clone(), new_id);
             self.reverse_vocab.insert(new_id, new_token_str.clone());
-            self.merges.push((best_pair.0.clone(), best_pair.1.clone()));
+            self.merges.push((TokenPair(best_pair.0.clone(), best_pair.1.clone()), new_id));
             
             if config.show_progress {
                 println!("  Merge {}: {} + {} → '{}' (freq: {})",
@@ -939,10 +906,7 @@ impl BPETokenizer {
             }
             
             // Apply merge to word segments
-            let best_pair_ids = (
-                *self.vocab.get(&best_pair.0).unwrap(),
-                *self.vocab.get(&best_pair.1).unwrap(),
-            );
+            let best_pair_ids = best_pair;
             
             Self::apply_merge_to_corpus_optimized(
                 &mut state.word_segments,
@@ -972,22 +936,13 @@ impl BPETokenizer {
         word_segments: &mut FastHashMap<Vec<u32>, usize>, // Made mutable to update in place
         new_token_id: u32,
     ) {
-        // --- Setup: Get the IDs for the pair being merged just ONCE ---
-        let id1 = match self.vocab.get(&merged_pair.0) {
-            Some(id) => *id,
-            None => return, // Merged pair part not in vocab, shouldn't happen
-        };
-        let id2 = match self.vocab.get(&merged_pair.1) {
-            Some(id) => *id,
-            None => return,
-        };
-        let pair_to_find = (id1, id2);
+        let pair_to_find = (merged_pair.0, merged_pair.1);
 
-        // Use a temporary map for new segments to avoid modifying while iterating
+        // Temporary map for new segments to avoid modifying while iterating
         let mut new_segments_to_add = FastHashMap::default();
         let mut old_segments_to_remove = Vec::new();
 
-        // --- Main Logic: A single pass over all word segments ---
+        // A single pass over all word segments
         for (segment_ids, &count) in word_segments.iter() {
             // Find segments that contain the pair we just merged
             let has_pair = segment_ids.windows(2).any(|w| w[0] == pair_to_find.0 && w[1] == pair_to_find.1);
@@ -997,10 +952,7 @@ impl BPETokenizer {
                 // 1. Decrement frequencies for all old pairs in this segment
                 if segment_ids.len() >= 2 {
                     for window in segment_ids.windows(2) {
-                        let pair_str = TokenPair(
-                            self.get_token_from_id(window[0]).clone(),
-                            self.get_token_from_id(window[1]).clone(),
-                        );
+                        let pair_str = TokenPair(window[0], window[1]);
                         if let Some(freq) = pair_freq.get_mut(&pair_str) {
                             *freq = freq.saturating_sub(count);
                         }
@@ -1023,10 +975,7 @@ impl BPETokenizer {
                 // 3. Increment frequencies for all new pairs in the new segment
                 if new_segment_ids.len() >= 2 {
                     for window in new_segment_ids.windows(2) {
-                        let pair_str = TokenPair(
-                            self.get_token_from_id(window[0]).clone(),
-                            self.get_token_from_id(window[1]).clone(),
-                        );
+                        let pair_str = TokenPair(window[0], window[1]);
                         *pair_freq.entry(pair_str).or_insert(0) += count;
                     }
                 }
@@ -1050,12 +999,13 @@ impl BPETokenizer {
     }
     
     // Initialize base vocabulary with common characters
-    pub fn initialize_base_vocabulary(&mut self, config: &IncrementalTrainingConfig) {
+    pub fn initialize_base_vocabulary(&mut self, _config: &IncrementalTrainingConfig) {
         // This should already be done in new(), but ensure it's complete
         for (token, &id) in &self.vocab {
             self.reverse_vocab.entry(id).or_insert_with(|| token.clone());
         }
     }
+
 
     pub fn save_checkpoint(&self, path: &str, state: IncrementalTrainingState, format : &mut &str) -> Result<(), Box<dyn std::error::Error>> {
         #[derive(Serialize)]
@@ -1108,7 +1058,14 @@ impl BPETokenizer {
         
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let checkpoint: Checkpoint = serde_json::from_reader(reader)?;
+
+        // Check file extension to determine format
+        let checkpoint: Checkpoint = if path.ends_with(".json") {
+            serde_json::from_reader(reader)?
+        } else {
+            // Assume bincode for any other extension
+            bincode::deserialize_from(reader)?
+        };
         
         Ok((checkpoint.tokenizer, checkpoint.state))
     }
@@ -1141,7 +1098,7 @@ impl BPETokenizer {
         chars
     }
 
-    pub fn _get_initial_word_char_segments(&self, word : &str) -> Vec<String>{
+    pub fn get_initial_word_char_segments(&self, word : &str) -> Vec<String>{
         let mut chars : Vec<String> = word.chars().map(|c| c.to_string()).collect();
         chars.push(self.end_of_word_token.clone());
         chars
@@ -1151,63 +1108,68 @@ impl BPETokenizer {
     // Handles Caching to avoid recomputing results for the same text.
     // This method uses the pre-tokenizer regex to split the text into segments,
     // normalizes the text, and then encodes each segment into token IDs.
-    pub fn encode(&mut self, text: &str) -> TokenizedResult<Vec<u32>>  {
-        if let Some(cached_result) = self.cache.get(&text.to_string()){
+    pub fn encode(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
+        // Check cache first
+        if let Some(cached_result) = self.cache.get(&text.to_string()) {
             return Ok(cached_result.clone()); 
         }
 
         let mut encoded_ids: Vec<u32> = Vec::new();
+        
+        // Text normalization
         let normalizer = TextNormalizer::new()
-                .to_lowercase()
-                .to_strip_accents();
-                
+            .to_lowercase()
+            .to_strip_accents();
         let normalized_text = normalizer.normalize(text);
 
+        // Pre-tokenization
         let pre_tokens = PRE_TOKENIZER_RE.find_iter(&normalized_text)
-                .map(|s| s.as_str().to_string())
-                .collect::<Vec<String>>();
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
 
-        for word_segments_str in    pre_tokens{
-            let mut current_word_segments = self._get_initial_word_char_segments(&word_segments_str);
-            loop{
-                let mut best_merge_idx: Option<usize> = None;
-                let mut best_merge_pair: Option<TokenPair> = None;
+        // Process each word segment
+        for word_segments_str in pre_tokens {
+            let char_tokens: Vec<String> = self.get_initial_word_char_segments(word_segments_str);
 
-                for (merge_idx, (p1, p2)) in self.merges.iter().enumerate(){
-                    let mut found : bool = false;
-                    for i in 0..current_word_segments.len() - 1{
-                        if current_word_segments[i] == *p1 && current_word_segments[i + 1] == *p2{
-                            found = true;
-                            break;
-                        }
-                    }
+            // Convert initial characters to token IDs
+            let mut current_word_ids: Vec<u32> = char_tokens.iter()
+                .map(|s| *self.vocab.get(s).unwrap_or(&self.unk_ids()))
+                .collect();
 
-                    if found{
-                        if best_merge_idx.is_none() || merge_idx < best_merge_idx.unwrap() {
-                            best_merge_idx = Some(merge_idx);
-                            best_merge_pair = Some(TokenPair(p1.clone(), p2.clone()));
+            // Apply BPE merges
+            loop {
+                let mut best_merge: Option<(&TokenPair, &u32)> = None;
+                let mut best_merge_pos = usize::MAX;
+
+                // Find the best merge (earliest position in merge list)
+                for (pair, new_id) in &self.merges {
+                    for i in 0..current_word_ids.len().saturating_sub(1) {
+                        if current_word_ids[i] == pair.0 && current_word_ids[i + 1] == pair.1 {
+                            // Found an applicable merge at the earliest position
+                            if i < best_merge_pos {
+                                best_merge = Some((pair, new_id));
+                                best_merge_pos = i;
+                            }
+                            break; // Move to next pair
                         }
                     }
                 }
 
-                // if there are no more pairs to merge, simply break the loop
-                if best_merge_idx.is_none() {
+                // Apply the best merge if found
+                if let Some((best_pair_to_merge, new_id)) = best_merge {
+                    Self::merge_pair_inplace(&mut current_word_ids, best_pair_to_merge, *new_id);
+                } else {
+                    // No more merges can be applied
                     break;
                 }
-
-                let TokenPair(p1_string, p2_string) = best_merge_pair.unwrap();
-                let new_token_str = format!("{}{}", p1_string, p2_string);
-
-                Self::merge_pair_inplace(&mut current_word_segments, &TokenPair(p1_string, p2_string), &new_token_str);
             }
-            // Convert merged segments to IDs
-            for token_string_segments in current_word_segments{
-                let token_id = self.vocab.get(&token_string_segments).copied().unwrap_or_else(|| self.unk_ids()); // If the token ID is not found, use the unknown token ID.
-                encoded_ids.push(token_id); // Push the token ID to the encoded IDs vector
-            }
+
+            // Add processed word IDs to final result
+            encoded_ids.extend(current_word_ids);
         }
 
-        self.cache.put(text.to_string(), encoded_ids.clone()); // Store the result in the cache
+        // Cache the result
+        self.cache.put(text.to_string(), encoded_ids.clone());
         Ok(encoded_ids)
     }
 
@@ -1234,11 +1196,9 @@ impl BPETokenizer {
                         let mut cache_ref = cache.borrow_mut();
                         if cache_ref.is_none() {
                             let mut new_tokenizer = self.clone();
-                            // Set cache capacity manually since set_cache_capacity method doesn't exist
                             new_tokenizer.cache = utils::cache::LruCache::new(config.thread_cache_size);
                             *cache_ref = Some(new_tokenizer);
                         }
-                        // This clone is cheap as it's from the RefCell, not the original Arc
                         cache_ref.as_mut().unwrap().clone() 
                     })
                 } else {
@@ -1277,26 +1237,38 @@ impl BPETokenizer {
     }
 
     pub fn decode(&self, token_ids: &[u32]) -> String {
-        let mut decoded_parts: Vec<String> = Vec::new();
+        let mut decoded_parts = Vec::new();
+
         for &id in token_ids {
-            // Use self.reverse_vocab directly, which is now fully populated
-            let token_str = self.reverse_vocab.get(&id)
-                                        .cloned()
-                                        .unwrap_or_else(|| self.unknown_tokens.clone());
-            
+            let token_str = self.reverse_vocab
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| self.unknown_tokens.clone());
+
+            // Skip special tokens like <PAD>, <MASK>, etc.
             if self.special_tokens_ids.contains_key(&token_str)
                 && token_str != self.unknown_tokens
                 && token_str != self.end_of_word_token
             {
                 continue;
             }
+
             decoded_parts.push(token_str);
         }
 
-        let mut final_text = decoded_parts.join("");
-        final_text = final_text.replace(&self.end_of_word_token, " ");
-        final_text.trim().to_string()
+        // Join everything
+        let joined = decoded_parts.join("");
+
+        // Normalize EOW token if present
+        let clean_text = joined
+            .replace(&self.end_of_word_token, " ") // e.g., "</w>"
+            .replace("⁄", " ")                    // just in case any ⁄ slipped in
+            .replace('\u{2044}', " ");            // backup for unicode literal
+
+        clean_text.trim().to_string()
     }
+
+
 
     pub fn save(&self, path: &str ) -> Result<(), Box<dyn std::error::Error>> {
         let file = File::create(path)?;
@@ -1349,4 +1321,4 @@ impl fmt::Display for BPEStats {
     }
 }
 
-// BYTE PAIR TOKENIZER END UwU
+// BYTE PAIR TOKENIZER END 
