@@ -18,7 +18,7 @@ MayaTok is a blazing-fast, multithreaded Byte-Pair Encoding (BPE) tokenizer writ
 Make sure you have Rust installed.
 
 ```
-git clone let me copy paste
+git clone https://github.com/AlgoBrother/MayaTok-BPE.git
 cd mayatok-bpe
 maturin build --release
 ```
