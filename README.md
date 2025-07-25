@@ -1,9 +1,7 @@
 # MayaTok
 MayaTok is a blazing-fast, multithreaded Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind, it’s ideal for anyone working on custom LLM pipelines, research, or production-ready NLP infrastructure.
 
-This is version 1 (V1)
-
-**Note: The tokenizer is still under development and need more better optmizations and token compression.**
+> ⚠️ Version: **V1** (under development, more optimizations & token compression coming soon!)
 
 ## ⚡️ Features
 
