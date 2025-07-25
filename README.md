@@ -25,6 +25,14 @@ maturin build --release
 
 This will generate the optimized binary in target/release/mayatok.
 
+### 📥 Download Pretrained Vocab
+
+Download the trained vocab and merges:
+
+```bash
+curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/blob/main/bpe_tokenizer_py.json
+```
+
 ## Corpus Used for V1
 
 Cosmopedia
