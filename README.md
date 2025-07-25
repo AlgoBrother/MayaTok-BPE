@@ -3,6 +3,8 @@ MayaTok is a blazing-fast, multithreaded Byte-Pair Encoding (BPE) tokenizer writ
 
 This is version 1 (V1)
 
+**Note: The tokenizer is still under development and need more better optmizations and token compression.**
+
 ## ⚡️ Features
 
 Custom BPE tokenizer from scratch
@@ -29,7 +31,9 @@ This will generate the optimized binary in target/release/mayatok.
 
 ## 📥 Download Pretrained Vocab
 
-Download the trained vocab and merges:
+Download the trained vocab and merges: 
+
+**Note: If you wish to make your own Vocab please see** [TRAINING.md]()
 
 ### Using Curl
 
@@ -71,6 +75,11 @@ decoded_text = my_tokenizer.decode(tokens)
 print(decoded_text)
 ```
 
+Output of the sample code above
+```
+[732, 21843, 345, 535, 576, 335, 725]
+Hello , world !
+```
 
 ## 🙌 Contributing
 
