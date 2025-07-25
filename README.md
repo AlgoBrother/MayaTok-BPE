@@ -56,9 +56,9 @@ OpenWebText
 To use MayaTok with python. 
 
 ```bash
-pip install target/wheels/mayatok_bpe-<VERSION>-cp310-cp310-win_amd64.whl
+pip install target/wheels/<PATH>
 ```
-Replace VERSION with the file version you have downloaded. Locate under target\wheels\ and copy and paste its path after ```pip install```
+> Replace <PATH> with the file version you have downloaded. Locate under target\wheels\ and copy and paste its path after ```pip install```
 
 Now you can use mayatok in your project :)
 
