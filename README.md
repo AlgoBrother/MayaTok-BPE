@@ -3,17 +3,17 @@ MayaTok is a blazing-fast, multithreaded Byte-Pair Encoding (BPE) tokenizer writ
 
 ⚡️ Features
 
-🧠 Custom BPE tokenizer from scratch — no wrappers
+Custom BPE tokenizer from scratch
+ 
+Multithreaded training for fast vocab generation 
 
-🧵 Multithreaded training for fast vocab generation
+Persistent merges 
 
-🗃️ Persistent vocab/merges (just like GPT-style tokenizers)
+Checkpoint saving
 
-🏎️ Focus on raw speed — built for performance benchmarking
+Focus on raw speed — built for performance benchmarking
 
-📦 Minimal dependencies, zero bloat
 
-📦 Installation
 
 Make sure you have Rust installed.
 
