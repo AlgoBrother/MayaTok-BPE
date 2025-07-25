@@ -25,12 +25,20 @@ maturin build --release
 
 This will generate the optimized binary in target/release/mayatok.
 
-### 📥 Download Pretrained Vocab
+## 📥 Download Pretrained Vocab
 
 Download the trained vocab and merges:
 
+### Using Curl
+
 ```bash
-curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/blob/main/bpe_tokenizer_py.json
+curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json
+```
+
+### Using Invoke-WebReques 
+
+```bash
+Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json -OutFile bpe_tokenizer_py.json
 ```
 
 ## Corpus Used for V1
