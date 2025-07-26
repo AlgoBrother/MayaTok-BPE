@@ -31,7 +31,7 @@ This will generate the optimized binary in target/release/mayatok.
 
 Download the trained vocab and merges: 
 
-**Note: If you wish to make your own Vocab please see** [TRAINING.md]()
+**Note: If you wish to make your own Vocab please see** [create_your_own_vocab](examples/train_your_own_vocab.py)
 
 ### Using Curl
 
