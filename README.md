@@ -57,7 +57,7 @@ To use MayaTok with python.
 ```bash
 pip install target/wheels/<PATH>
 ```
-> Replace <PATH> with the file version you have downloaded. Locate under target\wheels\ and copy and paste its path after ```pip install```
+> Replace PATH with the file version you have downloaded. Locate under target\wheels\ and copy and paste its path after ```pip install```
 
 Now you can use mayatok in your project :)
 
