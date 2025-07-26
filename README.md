@@ -1,19 +1,19 @@
 # MayaTok
-MayaTok is a blazing-fast, multithreaded Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind, it’s ideal for anyone working on custom LLM pipelines, research, or production-ready NLP infrastructure.
+MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind. 
 
 > ⚠️ Version: **V1** (under development, more optimizations & token compression coming soon!)
 
 ## ⚡️ Features
 
-Custom BPE tokenizer from scratch
+- Custom BPE tokenizer from scratch
  
-Multithreaded training for fast vocab generation 
+- Multithreaded training for fast vocab generation 
 
-Persistent merges 
+- Persistent merges 
 
-Checkpoint saving
+- Checkpoint saving
 
-Focus on raw speed — built for performance benchmarking
+- Focus on raw speed — built for performance benchmarking
 
 
 
@@ -79,6 +79,25 @@ Output of the sample code above
 Hello , world !
 ```
 
+## 📈 Benchmarks
+
+### Batch Encoding
+
+| Tokenizer   | Tokens/sec | Avg Compression Ratio |
+| ----------- | ---------- | --------------------- |
+| MayaTok-BPE | 59,066     | 2.44                  |
+| Falcon-7B   | 784,577    | 3.26                  |
+| GPT2        | 1,116,972  | 2.94                  |
+
+### Normal Encoding
+
+| Tokenizer   | Tokens/sec | Compression Ratio |
+| ----------- | ---------- | ----------------- |
+| MayaTok-BPE | 5,471      | 2.19              |
+| Falcon-7B   | 186,368    | 4.38              |
+| GPT2        | 266,627    | 4.38              |
+
+
 ## 🙌 Contributing
 
 Pull requests and suggestions are welcome! Feel free to open issues for bugs, feature requests, or optimizations.
@@ -95,4 +114,8 @@ Making it pip installable.
 More faster merging and better CPU usage
 
 Better merges. As the creator of this project, I will agree I am not fully satisfied with the current merge file and aim to improve it in future updates.
+
+Adding proper bincode support to make it more faster. 
+
+
 
