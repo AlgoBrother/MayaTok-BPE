@@ -94,3 +94,5 @@ Making it pip installable.
 
 More faster merging and better CPU usage
 
+Better merges. As the creator of this project, I will agree I am not fully satisfied with the current merge file and aim to improve it in future updates.
+
