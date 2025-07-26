@@ -20,6 +20,13 @@ Make sure you have Rust installed. If not, [Install Rust](https://www.rust-lang.
 ```bash
 git clone https://github.com/AlgoBrother/MayaTok-BPE.git
 cd mayatok-bpe
+
+```
+
+Use maturin for building wheels.
+
+```bash
+pip install maturin
 maturin build --release
 ```
 
@@ -37,17 +44,11 @@ Download the trained vocab and merges:
 curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json
 ```
 
-### Using Invoke-WebReques 
+### Using Invoke-WebRequest 
 
 ```bash
 Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json -OutFile bpe_tokenizer_py.json
 ```
-
-## Corpus Used for V1
-
-Cosmopedia
-
-OpenWebText
 
 ## Using with Python
 
@@ -96,6 +97,13 @@ Hello , world !
 | GPT2        | 266,627    | 4.38              |
 
 
+## 💽 Corpus Used for V1
+
+Cosmopedia
+
+OpenWebText
+
+
 ## 🙌 Contributing
 
 Pull requests and suggestions are welcome! Feel free to open issues for bugs, feature requests, or optimizations.
@@ -107,13 +115,13 @@ Apache-2.0
 
 
 ## Future Targets
-Making it pip installable.
+- Making it pip installable.
 
-More faster merging and better CPU usage
+- Faster merging and better CPU usage
 
-Better merges. As the creator of this project, I will agree I am not fully satisfied with the current merge file and aim to improve it in future updates.
+- Better merges. As the creator of this project, I will agree I am not fully satisfied with the current merge file and aim to improve it in future updates.
 
-Adding proper bincode support to make it more faster. 
+- bincode support for faster loading.
 
 
 
