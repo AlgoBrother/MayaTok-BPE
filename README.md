@@ -1,11 +1,9 @@
 # MayaTok
-MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind. 
+MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind. I made this project just because I wanted to study how Byte Pair Encoding Works. 
 
-> ⚠️ Version: **V1** (under development, more optimizations & token compression coming soon!)
+> Version: **V1** (under development, more optimizations & better token compression coming soon!)
 
-## ⚡️ Features
-
-- Custom BPE tokenizer from scratch
+## ⚡️ Features (More optimizations in Progress)
  
 - Multithreaded training for fast vocab generation 
 
