@@ -432,7 +432,7 @@ impl BPETokenizer {
             '√', '∛', '∜', '∐', '∮', '∯', '∰', '∝', '∋', '∌', '∧', '∨', '⊘', '⊙', '∴', '∵', '≬', '≻', '≺',
             '―', '⁃', '‗', '‖', '‴', 'ⁱ', 'ⁿ', 'ℵ', 'ℶ', 'ℷ', 'ℸ', 'ℹ', 'ℼ', 'ℽ', 'ℾ', 'ℿ', '⅀', '⅁', '⅂', '⅃', '⅄',
             '⅊', '⅋', '⅌', '⅍', 'ⅎ', '⅏', 'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ',
-            'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω', 'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ',
+            'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω', 'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ', 'ς',
             'Μ', 'Ν', 'Ξ','Ο', 'Π', 'Ρ', 'Σ', 'Τ', 'Υ', 'Φ', 'Χ', 'Ψ', 'Ω', '\u{200C}', '\u{200D}',  '\u{2060}',  '\u{FEFF}',  '\u{180E}',
         ];
         for &ch in &special_chars {
@@ -440,11 +440,14 @@ impl BPETokenizer {
             next_id += 1;
         }
 
-        // Reserve space for reverse_vocab and special_token_ids
+        vocab.insert(eow_token_value.clone(), next_id);
+        next_id += 1;
+
+        // Reserve space for reverse_vocab and special_tokens_ids
         let mut reverse_vocab = FastHashMap::default();
         let mut special_tokens_ids = FastHashMap::default();
 
-        // Assign IDs to special tokens (e.g. <unk>, </w>) first — override if they already exist
+        // Assign IDs to special tokens (example: <unk>, </w>) but first — override if they already exist
         for token_str in &config.special_tokens {
             if !vocab.contains_key(token_str) {
                 vocab.insert(token_str.clone(), next_id);
@@ -467,6 +470,17 @@ impl BPETokenizer {
         }
     }
 
+
+
+// The `unk_ids` function returns the ID associated with unknown tokens from a map of special token
+// IDs.
+//
+// Returns:
+// 
+// The `unk_ids` function is returning a `u32` value. This value is obtained by looking up the
+// `unknown_tokens` key in the `special_tokens_ids` map and returning the corresponding value. If the
+// key is not found in the map, the function will panic with the message "UNKNOWN TOKENS MUST BE
+// INITIALIZED IN SPECIAL TOKEN IDS".
     fn unk_ids(&self) -> u32 {
         *self.special_tokens_ids
             .get(&self.unknown_tokens)
@@ -561,10 +575,10 @@ impl BPETokenizer {
         let mut word_segments: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
         let mut initial_vocabulary_chars: HashSet<String> = HashSet::new();
 
-		let normalizer = TextNormalizer::new()
-						.to_strip_accents();
+        let normalizer = TextNormalizer::new()
+                        .to_strip_accents();
 
-		// Use a temporary map for parallel collection to merge later
+        // Use a temporary map for parallel collection to merge later
         let initial_processing_results: Vec<(FastHashMap<Vec<u32>, usize>, HashSet<String>)> = corpus.par_iter().map(|doc| {
             let normalized_doc = normalizer.normalize(doc);
 
@@ -584,8 +598,15 @@ impl BPETokenizer {
                 }
 
                 let char_ids: Vec<u32> = chars.iter()
-                    .map(|s| *self.vocab.get(s).unwrap_or(&self.unk_ids()))
-                    .collect();
+                .map(|s| {
+                    if let Some(&id) = self.vocab.get(s) {
+                        id
+                    } else {
+                        println!("Unknown character found: '{}' (Unicode: U+{:04X})", s, s.chars().next().unwrap() as u32);
+                        self.unk_ids()
+                    }
+                })
+                .collect();
                 *local_segments_map.entry(char_ids).or_insert(0) += 1;
             }
             (local_segments_map, local_initial_chars)
@@ -658,7 +679,11 @@ impl BPETokenizer {
                 break;
             }
 
-            let new_token_str = format!("{}{}", best_pair.0, best_pair.1);
+            
+            let token1_str = self.get_token_from_id(best_pair.0).clone();
+            let token2_str = self.get_token_from_id(best_pair.1).clone();
+            let new_token_str = format!("{}{}", token1_str, token2_str);
+            
             if self.vocab.contains_key(&new_token_str) {
                 continue;
             }
@@ -672,9 +697,10 @@ impl BPETokenizer {
 
             if config.show_progress {
                 println!(
-                    "Merge {}: Merging {} with freq {}. New token: \"{}\" (Vocab Size: {})",
+                    "Merge {}: Merging (\"{}\" + \"{}\") with freq {}. New token: \"{}\" (Vocab Size: {})",
                     self.merges.len(),
-                    best_pair,
+                    token1_str,
+                    token2_str,
                     max_freq,
                     new_token_str,
                     self.vocab.len()
@@ -870,7 +896,6 @@ impl BPETokenizer {
         // Merge the pair frequencies from all chunks
         state.pair_freq = pair_frequencies;
 
-
         // Perform merges until vocabulary target or no more valid pairs
         let mut merges_this_round = 0;
         while self.vocab.len() < config.vocab_size && merges_this_round < 1000 {
@@ -942,7 +967,7 @@ impl BPETokenizer {
         let mut new_segments_to_add = FastHashMap::default();
         let mut old_segments_to_remove = Vec::new();
 
-        // A single pass over all word segments
+        // --- Main Logic: A single pass over all word segments ---
         for (segment_ids, &count) in word_segments.iter() {
             // Find segments that contain the pair we just merged
             let has_pair = segment_ids.windows(2).any(|w| w[0] == pair_to_find.0 && w[1] == pair_to_find.1);
@@ -986,7 +1011,7 @@ impl BPETokenizer {
             }
         }
 
-        // --- Finalize: Apply the staged changes ---
+        // --- Finalize: Apply the changes ---
         for seg in old_segments_to_remove {
             word_segments.remove(&seg);
         }
@@ -1005,7 +1030,6 @@ impl BPETokenizer {
             self.reverse_vocab.entry(id).or_insert_with(|| token.clone());
         }
     }
-
 
     pub fn save_checkpoint(&self, path: &str, state: IncrementalTrainingState, format : &mut &str) -> Result<(), Box<dyn std::error::Error>> {
         #[derive(Serialize)]
@@ -1173,6 +1197,8 @@ impl BPETokenizer {
         Ok(encoded_ids)
     }
 
+    // Encodes a batch of text strings into sequences of token IDs.
+    // This method allows for parallel processing of multiple texts, utilizing a thread pool if configured.
     pub fn encode_batch(&mut self, text: &[String], config : BatchEncodingConfig) -> TokenizedResult<Vec<Vec<u32>>>{
     if let Some(max_threads) = config.max_threads {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -1221,7 +1247,7 @@ impl BPETokenizer {
         text.par_chunks(chunk_size)
         .map(|chunk| {
             let mut tokenizer_to_use = if config.use_thread_local_cache {
-                // You may want to implement thread-local cache here as well
+                // May implement thread-local cache here as well
                 self.clone()
             } else {
                 self.clone()
@@ -1236,6 +1262,7 @@ impl BPETokenizer {
     }
     }
 
+    // decodes a sequence of token IDs back into a string.
     pub fn decode(&self, token_ids: &[u32]) -> String {
         let mut decoded_parts = Vec::new();
 
@@ -1269,7 +1296,7 @@ impl BPETokenizer {
     }
 
 
-
+    // Save the vocab and merges to a JSON file
     pub fn save(&self, path: &str ) -> Result<(), Box<dyn std::error::Error>> {
         let file = File::create(path)?;
         let writer = BufWriter::new(file);
@@ -1277,6 +1304,7 @@ impl BPETokenizer {
         Ok(())
     }
 
+    // Load a BPETokenizer Vocab from a JSON file
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
@@ -1321,4 +1349,4 @@ impl fmt::Display for BPEStats {
     }
 }
 
-// BYTE PAIR TOKENIZER END 
+// BYTE PAIR TOKENIZER END UwU
