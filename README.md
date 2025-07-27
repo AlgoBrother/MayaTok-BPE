@@ -1,19 +1,17 @@
 # MayaTok
-MayaTok is a blazing-fast, multithreaded Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind, it’s ideal for anyone working on custom LLM pipelines, research, or production-ready NLP infrastructure.
+MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind. I made this project just because I wanted to study how Byte Pair Encoding Works. 
 
-> ⚠️ Version: **V1** (under development, more optimizations & token compression coming soon!)
+> Version: **V1** (under development, more optimizations & better token compression coming soon!)
 
-## ⚡️ Features
-
-Custom BPE tokenizer from scratch
+## ⚡️ Features (More optimizations in Progress)
  
-Multithreaded training for fast vocab generation 
+- Multithreaded training for fast vocab generation 
 
-Persistent merges 
+- Persistent merges 
 
-Checkpoint saving
+- Checkpoint saving
 
-Focus on raw speed — built for performance benchmarking
+- Focus on raw speed — built for performance benchmarking
 
 
 
@@ -22,6 +20,13 @@ Make sure you have Rust installed. If not, [Install Rust](https://www.rust-lang.
 ```bash
 git clone https://github.com/AlgoBrother/MayaTok-BPE.git
 cd mayatok-bpe
+
+```
+
+Use maturin for building wheels.
+
+```bash
+pip install maturin
 maturin build --release
 ```
 
@@ -31,7 +36,7 @@ This will generate the optimized binary in target/release/mayatok.
 
 Download the trained vocab and merges: 
 
-**Note: If you wish to make your own Vocab please see** [TRAINING.md]()
+**Note: If you wish to make your own Vocab please see** [create_your_own_vocab](examples/train_your_own_vocab.py)
 
 ### Using Curl
 
@@ -39,26 +44,20 @@ Download the trained vocab and merges:
 curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json
 ```
 
-### Using Invoke-WebReques 
+### Using Invoke-WebRequest 
 
 ```bash
 Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json -OutFile bpe_tokenizer_py.json
 ```
-
-## Corpus Used for V1
-
-Cosmopedia
-
-OpenWebText
 
 ## Using with Python
 
 To use MayaTok with python. 
 
 ```bash
-pip install target/wheels/mayatok_bpe-<VERSION>-cp310-cp310-win_amd64.whl
+pip install target/wheels/<PATH>
 ```
-Replace VERSION with the file version you have downloaded. Locate under target\wheels\ and copy and paste its path after ```pip install```
+> Replace PATH with the file version you have downloaded. Locate under target\wheels\ and copy and paste its path after ```pip install```
 
 Now you can use mayatok in your project :)
 
@@ -79,6 +78,32 @@ Output of the sample code above
 Hello , world !
 ```
 
+## 📈 Benchmarks
+
+### Batch Encoding
+
+| Tokenizer   | Tokens/sec | Avg Compression Ratio |
+| ----------- | ---------- | --------------------- |
+| MayaTok-BPE | 59,066     | 2.44                  |
+| Falcon-7B   | 784,577    | 3.26                  |
+| GPT2        | 1,116,972  | 2.94                  |
+
+### Normal Encoding
+
+| Tokenizer   | Tokens/sec | Compression Ratio |
+| ----------- | ---------- | ----------------- |
+| MayaTok-BPE | 5,471      | 2.19              |
+| Falcon-7B   | 186,368    | 4.38              |
+| GPT2        | 266,627    | 4.38              |
+
+
+## 💽 Corpus Used for V1
+
+Cosmopedia
+
+OpenWebText
+
+
 ## 🙌 Contributing
 
 Pull requests and suggestions are welcome! Feel free to open issues for bugs, feature requests, or optimizations.
@@ -90,7 +115,13 @@ Apache-2.0
 
 
 ## Future Targets
-Making it pip installable.
+- Making it pip installable.
 
-More faster merging and better CPU usage
+- Faster merging and better CPU usage
+
+- Better merges. As the creator of this project, I will agree I am not fully satisfied with the current merge file and aim to improve it in future updates.
+
+- bincode support for faster loading.
+
+
 
