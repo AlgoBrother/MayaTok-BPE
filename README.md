@@ -38,9 +38,11 @@ Download the trained vocab and merges:
 
 **Note: If you wish to make your own Vocab please see:** 
 
+> Make sure you have forked/cloned the rust tokenizer code and have built the /target/wheels as mentioned in previous steps
+
 [stream method](examples/train_your_own_vocab.py) - Designed to use streamed data from one local machine and use it on your training machine
 
-[non-stream method]() - If you have a dataset which your RAM can handle after being loaded, use this. much faster traininhg
+[non-stream method](examples/non_stream_train_your_own_vocab.py) - If you have a dataset which your RAM can handle after being loaded, use this. much faster traininhg
 
 ### Using Curl
 
@@ -119,8 +121,10 @@ Apache-2.0
 
 
 ## Future Targets
-- Making it pip installable.
+- Making it global pip installable.
 
+- the `examples` folder has lot of python implementation. Will experiment to integrate this in rust side of code and make python side of code more smaller and easier for users. Apologies for any current complexities.
+  
 - Faster merging and better CPU usage
 
 - Better merges. As the creator of this project, I will agree I am not fully satisfied with the current merge file and aim to improve it in future updates.
