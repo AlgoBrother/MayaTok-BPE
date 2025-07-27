@@ -36,7 +36,11 @@ This will generate the optimized binary in target/release/mayatok.
 
 Download the trained vocab and merges: 
 
-**Note: If you wish to make your own Vocab please see** [create_your_own_vocab](examples/train_your_own_vocab.py)
+**Note: If you wish to make your own Vocab please see:** 
+
+[stream method](examples/train_your_own_vocab.py) - Designed to use streamed data from one local machine and use it on your training machine
+
+[non-stream method]() - If you have a dataset which your RAM can handle after being loaded, use this. much faster traininhg
 
 ### Using Curl
 
