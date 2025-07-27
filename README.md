@@ -105,9 +105,9 @@ Hello , world !
 
 ## 💽 Corpus Used for V1
 
-Cosmopedia
+[Cosmopedia](https://huggingface.co/datasets/HuggingFaceTB/cosmopedia)
 
-OpenWebText
+[OpenWebText](https://huggingface.co/datasets/Skylion007/openwebtext)
 
 
 ## 🙌 Contributing
