@@ -104,7 +104,7 @@ Hello , world !
 | Falcon-7B   | 186,368    | 4.38              |
 | GPT2        | 266,627    | 4.38              |
 
-**Note: Performance Optmizations are ongoing**
+**Note: Performance optimizations are ongoing**
 
 ## 💽 Corpus Used for V1
 
