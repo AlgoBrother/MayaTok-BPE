@@ -1,7 +1,7 @@
 # MayaTok
 MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind. I made this project just because I wanted to study how Byte Pair Encoding Works. 
 
-> Version: **V1** (under development, more optimizations & better token compression coming soon!)
+> Version: **V1** (under development, more optimizations & improved token compression coming soon!)
 
 ## ⚡️ Features (More optimizations in Progress)
  
@@ -14,13 +14,16 @@ MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with perf
 - Focus on raw speed — built for performance benchmarking
 
 
+## 🚀 Installation
 
-Make sure you have Rust installed. If not, [Install Rust](https://www.rust-lang.org/tools/install)
+### Prerequisites
+- [Rust](https://www.rust-lang.org/tools/install) (required)
+- Python 3.7+ (for Python bindings)
 
+### From Source
 ```bash
 git clone https://github.com/AlgoBrother/MayaTok-BPE.git
 cd mayatok-bpe
-
 ```
 
 Use maturin for building wheels.
@@ -28,38 +31,43 @@ Use maturin for building wheels.
 ```bash
 pip install maturin
 maturin build --release
+pip install target/wheels/*.whl
 ```
 
-This will generate the optimized binary in target/release/mayatok.
 
 ## 📥 Download Pretrained Vocab
 
-Download the trained vocab and merges: 
+Download the trained vocab and merges:
 
-**Note: If you wish to make your own Vocab please see** [create_your_own_vocab](examples/train_your_own_vocab.py)
+### Quick Start (Recommended)
 
-### Using Curl
+#### Using Curl
 
 ```bash
 curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json
 ```
 
-### Using Invoke-WebRequest 
+#### Using Invoke-WebRequest 
 
 ```bash
 Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json -OutFile bpe_tokenizer_py.json
 ```
 
+### Create your own Vocab 
+
+> If you wish to create your own vocab file with a different corpus file.
+> 
+> Make sure you have forked/cloned the rust tokenizer code and have built the /target/wheels as mentioned in previous steps
+
+[stream method](examples/train_your_own_vocab.py) - If you have a large dataset and want to stream your data in chunks to not overload your machine. Use this.
+
+[non-stream method](examples/non_stream_train_your_own_vocab.py) - If you have a dataset which your RAM can handle after being loaded, use this for much faster training.
+
+
+
 ## Using with Python
 
-To use MayaTok with python. 
-
-```bash
-pip install target/wheels/<PATH>
-```
-> Replace PATH with the file version you have downloaded. Locate under target\wheels\ and copy and paste its path after ```pip install```
-
-Now you can use mayatok in your project :)
+To use MayaTok with Python:
 
 ```python
 import mayatok_bpe as bpe
@@ -84,7 +92,7 @@ Hello , world !
 
 | Tokenizer   | Tokens/sec | Avg Compression Ratio |
 | ----------- | ---------- | --------------------- |
-| MayaTok-BPE | 59,066     | 2.44                  |
+| **MayaTok-BPE** | **59,066**     | **2.44**                  |
 | Falcon-7B   | 784,577    | 3.26                  |
 | GPT2        | 1,116,972  | 2.94                  |
 
@@ -92,16 +100,17 @@ Hello , world !
 
 | Tokenizer   | Tokens/sec | Compression Ratio |
 | ----------- | ---------- | ----------------- |
-| MayaTok-BPE | 5,471      | 2.19              |
+| **MayaTok-BPE** | **5,471**      | **2.19**              |
 | Falcon-7B   | 186,368    | 4.38              |
 | GPT2        | 266,627    | 4.38              |
 
+**Note: Performance optimizations are ongoing**
 
 ## 💽 Corpus Used for V1
 
-Cosmopedia
+[Cosmopedia](https://huggingface.co/datasets/HuggingFaceTB/cosmopedia)
 
-OpenWebText
+[OpenWebText](https://huggingface.co/datasets/Skylion007/openwebtext)
 
 
 ## 🙌 Contributing
@@ -115,13 +124,19 @@ Apache-2.0
 
 
 ## Future Targets
-- Making it pip installable.
 
-- Faster merging and better CPU usage
+- [ ] PyPI package distribution
+      
+- [ ] the `examples` folder has lot of python implementation. Will experiment to integrate this in rust side of code and make python side of code more smaller and easier for users.
+      
+- [ ] Enhanced CPU utilization and faster merging algorithms
+      
+- [ ] Improved merge quality and compression ratios
+      
+- [ ] Bincode support for faster model loading
+      
 
-- Better merges. As the creator of this project, I will agree I am not fully satisfied with the current merge file and aim to improve it in future updates.
 
-- bincode support for faster loading.
-
+  
 
 
