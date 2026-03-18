@@ -195,14 +195,12 @@ impl PyIncrementalTrainingState {
         )
     }
     
-    #[pyo3(text_signature = "(self, tokenizer)")]
-    fn reconstruct_pair_freq(&self, tokenizer: &PyBPETokenizer) -> PyResult<()> {
-        let mut state = self.inner.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let tokenizer = tokenizer.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
+    #[pyo3(text_signature = "(self)")]
+    fn reconstruct_pair_freq(&mut self) -> PyResult<()> {
+        let mut state = self.inner.lock()
+                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         // Call the method on the actual IncrementalTrainingState struct
-        state.reconstruct_pair_freq(&tokenizer);
-
+        state.reconstruct_pair_freq();
         Ok(())
     }
 }

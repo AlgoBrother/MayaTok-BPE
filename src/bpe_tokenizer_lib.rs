@@ -146,7 +146,7 @@ impl IncrementalTrainingState{
     }
 
     
-    pub fn reconstruct_pair_freq(&mut self, tokenizer : &BPETokenizer){
+    pub fn reconstruct_pair_freq(&mut self){
         self.pair_freq.clear();
 
         for (segment_ids, count) in &self.word_segments {
@@ -444,7 +444,7 @@ impl BPETokenizer {
         next_id += 1;
 
         // Reserve space for reverse_vocab and special_tokens_ids
-        let mut reverse_vocab = FastHashMap::default();
+        let reverse_vocab = FastHashMap::default();
         let mut special_tokens_ids = FastHashMap::default();
 
         // Assign IDs to special tokens (example: <unk>, </w>) but first — override if they already exist
@@ -744,6 +744,9 @@ impl BPETokenizer {
         
         for (doc_idx, document) in corpus.enumerate() {
             chunk_buffer.push(document);
+            if config.show_progress && doc_idx % 10_000 == 0 && doc_idx > 0 {
+                println!("📄 Documents seen: {}", doc_idx);
+            }
             
             // Process chunk when buffer is full
             if chunk_buffer.len() >= config.chunk_size {
@@ -837,11 +840,15 @@ impl BPETokenizer {
             .collect();
 
         // === SEQUENTIAL merge ===
+        // Inside the sequential merge section:
+
 
         for (local_segments, local_new_chars) in chunk_results {
             // Merge segments
             for (segment_ids, count) in local_segments {
-                *state.word_segments.entry(segment_ids).or_insert(0) += count;
+                if count >= config.min_frequency {  
+                    *state.word_segments.entry(segment_ids).or_insert(0) += count;
+                }
             }
 
             // Insert new chars into vocab
@@ -881,7 +888,7 @@ impl BPETokenizer {
             .map(|(segment_tokens, &count)| {
                 let mut local_freq = FastHashMap::default();
                 for window in segment_tokens.windows(2) {
-                    let mut pair = TokenPair(window[0], window[1]);
+                    let pair = TokenPair(window[0], window[1]);
                     
                     *local_freq.entry(pair).or_insert(0) += count;
                 }
@@ -1215,6 +1222,8 @@ impl BPETokenizer {
 
         let chunk_size = cmp::max(1, texts.len() / config.parallel_threshold);
 
+        // Process in parallel using the thread pool.
+        // Each thread will have its own local cache if configured to use thread-local caching.
         pool.install(|| {
             thread_local! {
                 static THREAD_LOCAL_TOKENIZER: std::cell::RefCell<Option<BPETokenizer>> =
@@ -1258,6 +1267,7 @@ impl BPETokenizer {
         let mut encoded_ids = self.encode(text)?;
         
         // Add special tokens if needed (e.g., <SOS> at the beginning and <EOS> at the end)
+        // You can customize this logic based on your specific requirements for special tokens.
         if let Some(&sos_id) = self.special_tokens_ids.get("<s>") {
             encoded_ids.insert(0, sos_id);
         }
@@ -1269,7 +1279,7 @@ impl BPETokenizer {
 
         Ok(encoded_ids)
     }
-    
+
     // decodes a sequence of token IDs back into a string.
     pub fn decode(&self, token_ids: &[u32]) -> String {
         let mut decoded_parts = Vec::new();
