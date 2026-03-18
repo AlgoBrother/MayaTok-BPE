@@ -1133,13 +1133,19 @@ impl BPETokenizer {
     // This method uses the pre-tokenizer regex to split the text into segments,
     // normalizes the text, and then encodes each segment into token IDs.
     pub fn encode(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
-        // Check cache first
+
+        // Check for special tokens first
+        if let Some(&id) = self.special_tokens_ids.get(text){
+            return Ok(vec![id]);
+        }
+        
+        // Check cache
         if let Some(cached_result) = self.cache.get(&text.to_string()) {
             return Ok(cached_result.clone()); 
         }
 
         let mut encoded_ids: Vec<u32> = Vec::new();
-        
+
         // Text normalization
         let normalizer = TextNormalizer::new()
             .to_lowercase()
@@ -1166,8 +1172,8 @@ impl BPETokenizer {
                 let mut best_merge_pos = usize::MAX;
 
                 // Find the best merge (earliest position in merge list)
-                for (pair, new_id) in &self.merges {
-                    for i in 0..current_word_ids.len().saturating_sub(1) {
+                for (pair, new_id) in &self.merges { // n = 49,665
+                    for i in 0..current_word_ids.len().saturating_sub(1) { // m = word length in tokens
                         if current_word_ids[i] == pair.0 && current_word_ids[i + 1] == pair.1 {
                             // Found an applicable merge at the earliest position
                             if i < best_merge_pos {
@@ -1199,69 +1205,71 @@ impl BPETokenizer {
 
     // Encodes a batch of text strings into sequences of token IDs.
     // This method allows for parallel processing of multiple texts, utilizing a thread pool if configured.
-    pub fn encode_batch(&mut self, text: &[String], config : BatchEncodingConfig) -> TokenizedResult<Vec<Vec<u32>>>{
-    if let Some(max_threads) = config.max_threads {
+    pub fn encode_batch(&mut self, texts: &[String], config: BatchEncodingConfig, add_special_tokens: bool,) -> TokenizedResult<Vec<Vec<u32>>> {
+
+        // Build pool - either custom or global
         let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(max_threads)
+            .num_threads(config.max_threads.unwrap_or(rayon::current_num_threads()))
             .build()
             .map_err(|e| TokenizerError::EncodingError(e.to_string()))?;
 
+        let chunk_size = cmp::max(1, texts.len() / config.parallel_threshold);
+
         pool.install(|| {
             thread_local! {
-                static TOKENIZER_CACHE: std::cell::RefCell<Option<BPETokenizer>> =
+                static THREAD_LOCAL_TOKENIZER: std::cell::RefCell<Option<BPETokenizer>> =
                     std::cell::RefCell::new(None);
             }
 
-            let chunk_size = cmp::max(1, text.len() / config.parallel_threshold);
-            // Split the text into chunks for parallel processing
+            texts
+                .par_chunks(chunk_size)
+                .map(|chunk| {
+                    let mut tokenizer_to_use = if config.use_thread_local_cache {
+                        THREAD_LOCAL_TOKENIZER.with(|cache| {
+                            let mut cache_ref = cache.borrow_mut();
+                            if cache_ref.is_none() {
+                                let mut t = self.clone();
+                                t.cache = utils::cache::LruCache::new(config.thread_cache_size);
+                                *cache_ref = Some(t);
+                            }
+                            cache_ref.as_mut().unwrap().clone()
+                        })
+                    } else {
+                        self.clone()
+                    };
 
-            text.par_chunks(chunk_size)
-            .map(|chunk| {
-                let mut tokenizer_to_use = if config.use_thread_local_cache {
-                    TOKENIZER_CACHE.with(|cache| {
-                        let mut cache_ref = cache.borrow_mut();
-                        if cache_ref.is_none() {
-                            let mut new_tokenizer = self.clone();
-                            new_tokenizer.cache = utils::cache::LruCache::new(config.thread_cache_size);
-                            *cache_ref = Some(new_tokenizer);
-                        }
-                        cache_ref.as_mut().unwrap().clone() 
-                    })
-                } else {
-                    // If no thread-local cache, simply clone for each chunk/task
-                    self.clone()
-                };
-
-                // Process chunk sequentially within thread
-                chunk.iter()
-                    .map(|text| tokenizer_to_use.encode(text))
-                    .collect::<TokenizedResult<Vec<Vec<u32>>>>()
-            })
-            .collect::<TokenizedResult<Vec<Vec<Vec<u32>>>>>()
-            .map(|chunks| chunks.into_iter().flatten().collect())
+                    chunk
+                        .iter()
+                        .map(|text| {
+                            if add_special_tokens {
+                                tokenizer_to_use.encode_with_special_tokens(text)
+                            } else {
+                                tokenizer_to_use.encode(text)
+                            }
+                        })
+                        .collect::<TokenizedResult<Vec<Vec<u32>>>>()
+                })
+                .collect::<TokenizedResult<Vec<Vec<Vec<u32>>>>>()
+                .map(|chunks| chunks.into_iter().flatten().collect())
         })
-    } else {
-        // Fallback if no max_threads is set
-        let chunk_size = cmp::max(1, text.len() / config.parallel_threshold);
-
-        text.par_chunks(chunk_size)
-        .map(|chunk| {
-            let mut tokenizer_to_use = if config.use_thread_local_cache {
-                // May implement thread-local cache here as well
-                self.clone()
-            } else {
-                self.clone()
-            };
-
-            chunk.iter()
-                .map(|text| tokenizer_to_use.encode(text))
-                .collect::<TokenizedResult<Vec<Vec<u32>>>>()
-        })
-        .collect::<TokenizedResult<Vec<Vec<Vec<u32>>>>>()
-        .map(|chunks| chunks.into_iter().flatten().collect())
-    }
     }
 
+    pub fn encode_with_special_tokens(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
+        let mut encoded_ids = self.encode(text)?;
+        
+        // Add special tokens if needed (e.g., <SOS> at the beginning and <EOS> at the end)
+        if let Some(&sos_id) = self.special_tokens_ids.get("<s>") {
+            encoded_ids.insert(0, sos_id);
+        }
+        
+        if let Some(&eos_id) = self.special_tokens_ids.get("</s>") {
+            encoded_ids.push(eos_id);
+        }
+        
+
+        Ok(encoded_ids)
+    }
+    
     // decodes a sequence of token IDs back into a string.
     pub fn decode(&self, token_ids: &[u32]) -> String {
         let mut decoded_parts = Vec::new();

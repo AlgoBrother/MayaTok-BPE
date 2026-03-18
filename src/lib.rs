@@ -386,11 +386,26 @@ impl PyBPETokenizer {
         tokenizer.encode(&text).map_err(PyErr::from)
     }
 
-    #[pyo3(text_signature = "(self, texts, config=None)")]
-    fn encode_batch(&mut self, texts: Vec<String>, config: Option<PyBatchEncodingConfig>) -> PyResult<Vec<Vec<u32>>> {
+    #[pyo3(text_signature = "(self, texts, add_special_tokens=False, config=None)")]
+    fn encode_batch(
+        &mut self, 
+        texts: Vec<String>, 
+        add_special_tokens: Option<bool>,  // Optional with default
+        config: Option<PyBatchEncodingConfig>
+    ) -> PyResult<Vec<Vec<u32>>> {
         let rust_config = config.map_or_else(BatchEncodingConfig::default, |c| c.into());
-        let mut tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        tokenizer.encode_batch(&texts, rust_config).map_err(PyErr::from)
+        let use_special_tokens = add_special_tokens.unwrap_or(false);  // default False
+        let mut tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        tokenizer.encode_batch(&texts, rust_config, use_special_tokens)
+            .map_err(PyErr::from)
+    }
+
+    #[pyo3(text_signature = "(self, text, /)")]
+    fn encode_with_special_tokens(&mut self, text: String) -> PyResult<Vec<u32>> {
+        let mut tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        tokenizer.encode_with_special_tokens(&text).map_err(PyErr::from)
     }
 
     #[pyo3(text_signature = "(self, token_ids)")]
