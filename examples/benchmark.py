@@ -17,7 +17,7 @@ hf_falcon = AutoTokenizer.from_pretrained("tiiuae/falcon-7b", use_fast=True)
 hf_gpt2 = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 
 # Load MayaTok
-my_tokenizer = bpe.PyBPETokenizer().load(r"C:\Users\Ashwin Rajhans\Maya-v1\Transformer_Decoder\bpe_tokenizer_py.json")
+my_tokenizer = bpe.PyBPETokenizer().load(r"bpe_tokenizer_py.json") 
 
 batch_config = bpe.PyBatchEncodingConfig(
     max_length=512,
