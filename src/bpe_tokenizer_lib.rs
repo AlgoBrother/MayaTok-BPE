@@ -2,12 +2,14 @@
 
 use core::fmt;
 use std::{collections::HashSet, hash::Hash, cmp};
+
 use hashbrown::HashMap;
 use ahash::AHasher;
 use std::hash::BuildHasherDefault;
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use std::sync::Arc;
+use crate::bpe_tokenizer_lib::utils::cache::LruCache;
 use crate::text_normalizer::TextNormalizer;
 
 extern crate serde;
@@ -96,6 +98,8 @@ pub mod utils {
     }
 
     pub mod cache {
+        use std::borrow::Borrow;
+
         use hashbrown::HashMap;
         use serde::{Deserialize, Serialize};
 
@@ -177,11 +181,15 @@ pub mod utils {
                 }
             }
 
-            pub fn get(&mut self, key: &K) -> Option<&V> {
-                let idx = *self.map.get(key)?;
-                self.detach(idx);
-                self.attach_head(idx);
-                Some(&self.nodes[idx].value)
+            pub fn get<Q>(&mut self, key: &Q) -> Option<&V>
+            where
+                K: Borrow<Q>,
+                Q: std::hash::Hash + Eq + ?Sized,
+            {
+                let idx = *self.map.get(key)?; // ? early return if not found
+                self.detach(idx); // move to head (most recently used)
+                self.attach_head(idx); // reattach at head
+                Some(&self.nodes[idx].value) // return value
             }
 
             pub fn put(&mut self, key: K, value: V) {
@@ -357,6 +365,182 @@ impl IncrementalTrainingState {
     }
 }
 
+// ========== Encoding BLOCK ============
+
+// I AM TIRED OF COPY PASTING TWO FUNCTIONS IN TOKENIZER AND THREAD
+// HAVE THIS ONE HERE. REST I WILL SEE IT. IF IT WORKS NOW, IT WORKS
+// I WILL SEE DESYNC LATER IF IT HAPPENS
+fn encode_text_inner(
+    text: &str,
+    vocab: &FastHashMap<String, u32>,
+    merge_rank: &FastHashMap<TokenPair, usize>,
+    merge_id: &FastHashMap<TokenPair, u32>,
+    special_tokens_ids: &FastHashMap<String, u32>,
+    end_of_word_token: &str,
+    unk_id: u32,
+    cache: &mut LruCache<String, Arc<Vec<u32>>>,
+) -> TokenizedResult<Vec<u32>> {
+    // Special token check
+    if let Some(&id) = special_tokens_ids.get(text) {
+        return Ok(vec![id]);
+    }
+
+    // Cache check
+    if let Some(cached) = cache.get(text) {
+        return Ok((**cached).clone());
+    }
+
+    let normalizer = TextNormalizer::new().to_strip_accents();
+    let normalized = normalizer.normalize(text);
+    let mut ids: Vec<u32> = Vec::new();
+
+    for word in PRE_TOKENIZER_RE.find_iter(&normalized).map(|m| m.as_str()) {
+        let mut chars: Vec<String> = word.chars().map(|c| c.to_string()).collect();
+        chars.push(end_of_word_token.to_string());
+
+        let mut word_ids: Vec<u32> = chars.iter()
+            .map(|s| *vocab.get(s).unwrap_or(&unk_id))
+            .collect();
+
+        loop {
+            if word_ids.len() < 2 { break; }
+            let best = word_ids.windows(2).enumerate().filter_map(|(pos, w)| {
+                let pair = TokenPair(w[0], w[1]);
+                merge_rank.get(&pair).map(|&rank| (rank, pos, pair))
+            }).min_by_key(|&(rank, _, _)| rank);
+
+            match best {
+                None => break,
+                Some((_, pos, pair)) => {
+                    let new_id = merge_id[&pair];
+                    word_ids[pos] = new_id;
+                    let mut write = pos + 1;
+                    let mut read = pos + 2;
+                    while read < word_ids.len() {
+                        word_ids[write] = word_ids[read];
+                        write += 1;
+                        read += 1;
+                    }
+                    word_ids.truncate(write);
+                }
+            }
+        }
+        ids.extend(word_ids);
+    }
+
+    cache.put(text.to_string(), Arc::new(ids.clone()));
+    Ok(ids)
+}
+
+#[derive(Debug, Clone)]
+pub struct Encoding {
+    pub input_ids: Vec<u32>,
+    pub attention_mask: Vec<u32>,  // 1 = real token, 0 = padding
+    pub token_type_ids: Vec<u32>,  // 0 = sentence A, 1 = sentence B
+}
+
+impl Encoding{
+
+    // build encoding from ids with options for padding, truncation, and special tokens
+    pub fn build_with_pair(
+        mut ids_a: Vec<u32>,
+        ids_b: Option<Vec<u32>>,
+        max_length: Option<usize>,
+        padding: bool,
+        truncation: bool,
+        add_special_tokens: bool,
+        special_tokens_ids: &FastHashMap<String, u32>,
+    ) -> Self {
+        // Add special tokens
+        if add_special_tokens {
+            if let Some(&bos) = special_tokens_ids.get("<s>") {
+                ids_a.insert(0, bos);
+            }
+            if let Some(&eos) = special_tokens_ids.get("</s>") {
+                ids_a.push(eos);
+            }
+        }
+
+        let len_a = ids_a.len();
+
+        // Combine with text_b if present
+        let ids_b_processed = match ids_b {
+            Some(mut b) => {
+                if add_special_tokens {
+                    if let Some(&eos) = special_tokens_ids.get("</s>") {
+                        b.push(eos);
+                    }
+                }
+                b
+            }
+            None => vec![],
+        };
+
+        let len_b = ids_b_processed.len();
+
+        let mut ids = ids_a;
+        ids.extend(ids_b_processed);
+
+        // Truncation — trim from longer sequence
+        if truncation {
+            if let Some(max) = max_length {
+                ids.truncate(max);
+            }
+        }
+
+        let real_len = ids.len();
+
+        // Padding
+        if padding {
+            if let Some(max) = max_length {
+                let pad_id = *special_tokens_ids.get("<pad>").unwrap_or(&0);
+                ids.resize(max, pad_id);
+            }
+        }
+
+        let seq_len = ids.len();
+
+        // token_type_ids: 0 for A, 1 for B, 0 for padding
+        let token_type_ids: Vec<u32> = (0..seq_len)
+            .map(|i| {
+                if i < len_a { 0 }
+                else if i < len_a + len_b { 1 }
+                else { 0 }
+            })
+            .collect();
+
+        let attention_mask: Vec<u32> = (0..seq_len)
+            .map(|i| if i < real_len { 1 } else { 0 })
+            .collect();
+
+        Encoding { input_ids: ids, attention_mask, token_type_ids }
+    }
+
+    pub fn build(
+        ids: Vec<u32>,
+        max_length: Option<usize>,
+        padding: bool,
+        truncation: bool,
+        add_special_tokens: bool,
+        special_tokens_ids: &FastHashMap<String, u32>,
+    ) -> Self {
+        Self::build_with_pair(ids, None, max_length, padding, truncation, add_special_tokens, special_tokens_ids)
+    }
+
+    
+
+    // function to build encoding from ids with default config (no truncation, no padding, no special tokens)
+    pub fn single(ids: Vec<u32>) -> Self {
+        let len = ids.len();
+        Encoding {
+            attention_mask: vec![1u32; len],
+            token_type_ids: vec![0u32; len],
+            input_ids: ids,
+        }
+    }
+}
+
+
 // =========== Core tokenizer struct ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -376,7 +560,7 @@ pub struct BPETokenizer {
     pub merge_id: FastHashMap<TokenPair, u32>,     // pair -> resulting token id
 
     #[serde(skip)]
-    pub cache: utils::cache::LruCache<String, Vec<u32>>,
+    pub cache: utils::cache::LruCache<String, Arc<Vec<u32>>>,
 }
 
 impl Default for BPETokenizer {
@@ -432,7 +616,7 @@ impl BPETokenizer {
             special_tokens_ids,
             merge_rank: FastHashMap::default(),
             merge_id: FastHashMap::default(),
-            cache: utils::cache::LruCache::new(150_000),
+            cache: LruCache::new(150_000),
         }
     }
 
@@ -501,79 +685,60 @@ impl BPETokenizer {
         segments.truncate(write);
     }
 
-    pub fn encode(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
-        // Special token exact-match fast path
-        if let Some(&id) = self.special_tokens_ids.get(text) {
-            return Ok(vec![id]);
-        }
-
-        // Cache hit
-        if let Some(cached) = self.cache.get(&text.to_string()) {
-            return Ok(cached.clone());
-        }
-
-        // Normalizer must match what was used during training
-        let normalizer = TextNormalizer::new()
-            .to_strip_accents();
-        let normalized = normalizer.normalize(text);
-
-        let mut encoded_ids: Vec<u32> = Vec::new();
-
-        for word in PRE_TOKENIZER_RE.find_iter(&normalized).map(|m| m.as_str()) {
-            let char_tokens = self.get_initial_word_char_segments(word);
-            let mut ids: Vec<u32> = char_tokens
-                .iter()
-                .map(|s| *self.vocab.get(s).unwrap_or(&self.unk_ids()))
-                .collect();
-
-            // Scan adjacent pairs once, pick best by merge rank
-            loop {
-                if ids.len() < 2 { break; }
-
-                // Find the pair with the lowest (best) merge rank among all adjacent pairs
-                let best = ids.windows(2).enumerate().filter_map(|(pos, w)| {
-                    let pair = TokenPair(w[0], w[1]);
-                    self.merge_rank.get(&pair).map(|&rank| (rank, pos, pair))
-                }).min_by_key(|&(rank, _, _)| rank);
-
-                match best {
-                    None => break,
-                    Some((_, pos, pair)) => {
-                        let new_id = self.merge_id[&pair];
-                        // In-place merge at pos: replace ids[pos] with new_id, remove ids[pos+1]
-                        ids[pos] = new_id;
-                        ids.remove(pos + 1);
-                    }
-                }
-            }
-
-            encoded_ids.extend(ids);
-        }
-
-        self.cache.put(text.to_string(), encoded_ids.clone());
-        Ok(encoded_ids)
+    // encode and encode_batch are inference level tokenization functions, with options for padding, truncation, and special tokens
+    pub fn encode(
+        &mut self,
+        text: &str,
+        text_b: Option<&str>,
+        max_length: Option<usize>,
+        padding: bool,
+        truncation: bool,
+        add_special_tokens: bool,
+    ) -> TokenizedResult<Encoding> {
+        let ids_a = self.encode_text_inner(text)?;
+        let ids_b = match text_b {
+            Some(b) => Some(self.encode_text_inner(b)?),
+            None => None,
+        };
+        Ok(Encoding::build_with_pair(
+            ids_a,
+            ids_b,
+            max_length,
+            padding,
+            truncation,
+            add_special_tokens,
+            &self.special_tokens_ids,
+        ))
     }
 
-    pub fn encode_with_special_tokens(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
-        let mut ids = self.encode(text)?;
-        if let Some(&sos) = self.special_tokens_ids.get("<s>") { ids.insert(0, sos); }
-        if let Some(&eos) = self.special_tokens_ids.get("</s>") { ids.push(eos); }
-        Ok(ids)
+    fn encode_text_inner(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
+        let unk = self.unk_ids();
+        encode_text_inner(
+            text,
+            &self.vocab,
+            &self.merge_rank,
+            &self.merge_id,
+            &self.special_tokens_ids,
+            &self.end_of_word_token,
+            unk,
+            &mut self.cache,
+        )
     }
 
-    // =========== encode_batch() ============
-    //  Now: read-only tokenizer data is shared via Arc, only the LRU cache is
-    //  per-thread.
+    // =========== BATCH ENCODE ============
     //  parallel_threshold is now the minimum texts-per-chunk to bother going parallel.
     //  For small batches, falls back to single-threaded.
     pub fn encode_batch(
         &self,
         texts: &[String],
+        texts_b: Option<&[String]>,
         config: BatchEncodingConfig,
+        max_length: Option<usize>,
+        padding: bool,
+        truncation: bool,
         add_special_tokens: bool,
-    ) -> TokenizedResult<Vec<Vec<u32>>> {
-        // Share the heavy read-only data (vocab, merges, merge_rank, merge_id) across threads
-        // without cloning. Only the cache is per-thread.
+    ) -> TokenizedResult<Vec<Encoding>> {
+
         let shared = Arc::new(SharedTokenizerData {
             vocab: &self.vocab,
             merge_rank: &self.merge_rank,
@@ -583,14 +748,12 @@ impl BPETokenizer {
             unknown_tokens: &self.unknown_tokens,
         });
 
-        // If batch is small, just do it single-threaded — no rayon overhead
+        // Single-threaded path for small batches
         if texts.len() < config.parallel_threshold {
-            // For single-threaded path we need a mutable tokenizer; clone just self
-            // (which now only clones the cache, small :])
             let mut local = self.clone();
-            return texts.iter().map(|t| {
-                if add_special_tokens { local.encode_with_special_tokens(t) }
-                else { local.encode(t) }
+            return texts.iter().enumerate().map(|(i, text)| {
+                let text_b = texts_b.and_then(|b| b.get(i).map(|s| s.as_str()));
+                local.encode(text, text_b, max_length, padding, truncation, add_special_tokens)
             }).collect();
         }
 
@@ -603,20 +766,67 @@ impl BPETokenizer {
             .map_err(|e| TokenizerError::EncodingError(e.to_string()))?;
 
         pool.install(|| {
-            texts.par_chunks(chunk_size).map(|chunk| {
-                // Each thread gets a lightweight tokenizer shell with its own LRU cache.
-                // The heavy data (vocab, merges, lookups) is referenced, not cloned.
-                let mut thread_tokenizer = ThreadLocalTokenizer::new(
+            texts.par_chunks(chunk_size).enumerate().map(|(chunk_idx, chunk)| {
+                let mut thread_tok = ThreadLocalTokenizer::new(
                     Arc::clone(&shared),
                     config.thread_cache_size,
                 );
-                chunk.iter().map(|text| {
-                    if add_special_tokens {
-                        thread_tokenizer.encode_with_special_tokens(text)
-                    } else {
-                        thread_tokenizer.encode(text)
-                    }
-                }).collect::<TokenizedResult<Vec<Vec<u32>>>>()
+                let offset = chunk_idx * chunk_size;
+                // in pool.install closure
+                chunk.iter().enumerate().map(|(i, text)| {
+                    let text_b = texts_b
+                        .and_then(|b| b.get(offset + i).map(|s| s.as_str()));
+                    thread_tok.encode(
+                        text, text_b, max_length, padding, truncation, add_special_tokens
+                    )
+                }).collect::<TokenizedResult<Vec<Encoding>>>()
+            })
+            .collect::<TokenizedResult<Vec<Vec<Encoding>>>>()
+            .map(|chunks| chunks.into_iter().flatten().collect())
+        })
+    }
+
+    // encode_fast and encode_batch_fast are made for PRETRAINING 
+    pub fn encode_fast(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
+        self.encode_text_inner(text)
+    }
+
+    pub fn encode_batch_fast(
+        &self,
+        texts: &[String],
+        config: BatchEncodingConfig,
+    ) -> TokenizedResult<Vec<Vec<u32>>> {
+        let shared = Arc::new(SharedTokenizerData {
+            vocab: &self.vocab,
+            merge_rank: &self.merge_rank,
+            merge_id: &self.merge_id,
+            special_tokens_ids: &self.special_tokens_ids,
+            end_of_word_token: &self.end_of_word_token,
+            unknown_tokens: &self.unknown_tokens,
+        });
+
+        if texts.len() < config.parallel_threshold {
+            let mut local = self.clone();
+            return texts.iter().map(|t| local.encode_text_inner(t)).collect();
+        }
+
+        let n_threads = config.max_threads.unwrap_or_else(rayon::current_num_threads);
+        let chunk_size = cmp::max(config.parallel_threshold, texts.len() / n_threads);
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(n_threads)
+            .build()
+            .map_err(|e| TokenizerError::EncodingError(e.to_string()))?;
+
+        pool.install(|| {
+            texts.par_chunks(chunk_size).map(|chunk| {
+                let mut thread_tok = ThreadLocalTokenizer::new(
+                    Arc::clone(&shared),
+                    config.thread_cache_size,
+                );
+                chunk.iter()
+                    .map(|text| thread_tok.encode_text_inner(text))
+                    .collect::<TokenizedResult<Vec<Vec<u32>>>>()
             })
             .collect::<TokenizedResult<Vec<Vec<Vec<u32>>>>>()
             .map(|chunks| chunks.into_iter().flatten().collect())
@@ -653,7 +863,14 @@ impl BPETokenizer {
         PUNCT_RE.replace_all(clean_text.trim(), "$1").to_string()
     }
 
-    // =========== TTRAIN THE TOKENIZER ============
+
+    pub fn decode_batch(&self, batch_ids: &[Vec<u32>]) -> Vec<String> {
+        batch_ids.par_iter()
+                .map(|ids| self.decode(ids))
+                .collect()
+    }
+
+    // =========== TRAIN THE TOKENIZER ============
     // after each merge, only the affected segments update pair counts.
     pub fn train(&mut self, corpus: &[String], config: TrainingConfig) {
         println!("Starting BPE Training");
@@ -998,7 +1215,7 @@ impl BPETokenizer {
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let file = File::open(path)?;
         let mut tokenizer: Self = serde_json::from_reader(BufReader::new(file))?;
-        tokenizer.cache = utils::cache::LruCache::new(150_000);
+        tokenizer.cache = LruCache::new(150_000);
         tokenizer.build_merge_lookups(); 
         Ok(tokenizer)
     }
@@ -1062,70 +1279,60 @@ unsafe impl<'a> Sync for SharedTokenizerData<'a> {}
 
 struct ThreadLocalTokenizer<'a> {
     data: Arc<SharedTokenizerData<'a>>,
-    cache: utils::cache::LruCache<String, Vec<u32>>,
+    cache: LruCache<String, Arc<Vec<u32>>>,
 }
 
 impl<'a> ThreadLocalTokenizer<'a> {
     fn new(data: Arc<SharedTokenizerData<'a>>, cache_size: usize) -> Self {
-        Self { data, cache: utils::cache::LruCache::new(cache_size) }
+        Self { data, cache: LruCache::new(cache_size) }
     }
 
     fn unk_id(&self) -> u32 {
         *self.data.special_tokens_ids.get(self.data.unknown_tokens)
-            .expect("unk token missing")
+            .expect("unknown token missing")
     }
 
-    fn encode(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
-        if let Some(&id) = self.data.special_tokens_ids.get(text) {
-            return Ok(vec![id]);
-        }
-        if let Some(cached) = self.cache.get(&text.to_string()) {
-            return Ok(cached.clone());
-        }
+    fn encode(
+        &mut self,
+        text: &str,
+        text_b: Option<&str>,  // now used
+        max_length: Option<usize>,
+        padding: bool,
+        truncation: bool,
+        add_special_tokens: bool,
+    ) -> TokenizedResult<Encoding> {
+        let ids_a = self.encode_text_inner(text)?;
+        
+        let ids_b = match text_b {
+            Some(b) => Some(self.encode_text_inner(b)?),
+            None => None,
+        };
 
-        let normalizer = TextNormalizer::new().to_strip_accents();
-        let normalized = normalizer.normalize(text);
+        Ok(Encoding::build_with_pair(
+            ids_a,
+            ids_b,
+            max_length,
+            padding,
+            truncation,
+            add_special_tokens,
+            &self.data.special_tokens_ids,
+        ))
+    }
 
-        let mut result: Vec<u32> = Vec::new();
+    fn encode_text_inner(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
         let unk = self.unk_id();
-
-        for word in PRE_TOKENIZER_RE.find_iter(&normalized).map(|m| m.as_str()) {
-            let mut chars: Vec<String> = word.chars().map(|c| c.to_string()).collect();
-            chars.push(self.data.end_of_word_token.to_string());
-
-            let mut ids: Vec<u32> = chars.iter()
-                .map(|s| *self.data.vocab.get(s).unwrap_or(&unk))
-                .collect();
-
-            loop {
-                if ids.len() < 2 { break; }
-                let best = ids.windows(2).enumerate().filter_map(|(pos, w)| {
-                    let pair = TokenPair(w[0], w[1]);
-                    self.data.merge_rank.get(&pair).map(|&rank| (rank, pos, pair))
-                }).min_by_key(|&(rank, _, _)| rank);
-
-                match best {
-                    None => break,
-                    Some((_, pos, pair)) => {
-                        let new_id = self.data.merge_id[&pair];
-                        ids[pos] = new_id;
-                        ids.remove(pos + 1);
-                    }
-                }
-            }
-            result.extend(ids);
-        }
-
-        self.cache.put(text.to_string(), result.clone());
-        Ok(result)
+        encode_text_inner(
+            text,
+            &self.data.vocab,
+            &self.data.merge_rank,
+            &self.data.merge_id,
+            &self.data.special_tokens_ids,
+            &self.data.end_of_word_token,
+            unk,
+            &mut self.cache,
+        )
     }
 
-    fn encode_with_special_tokens(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
-        let mut ids = self.encode(text)?;
-        if let Some(&sos) = self.data.special_tokens_ids.get("<s>") { ids.insert(0, sos); }
-        if let Some(&eos) = self.data.special_tokens_ids.get("</s>") { ids.push(eos); }
-        Ok(ids)
-    }
 }
 
 // =========== STATISTICS ============

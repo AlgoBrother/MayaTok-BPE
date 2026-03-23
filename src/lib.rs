@@ -5,16 +5,55 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 
 mod text_normalizer;
 mod bpe_tokenizer_lib;
-pub use bpe_tokenizer_lib::{BPETokenizer, BPEStats, BatchEncodingConfig, TrainingConfig, TokenizerError, IncrementalTrainingConfig, IncrementalTrainingState};
+pub use bpe_tokenizer_lib::{
+    BPETokenizer, BPEStats, BatchEncodingConfig, TrainingConfig, 
+    TokenizerError, IncrementalTrainingConfig, IncrementalTrainingState, Encoding
+};
 
-// Function to convert Rust's TokenizerError to PyO3's PyErr
 impl From<TokenizerError> for PyErr {
     fn from(err: TokenizerError) -> PyErr {
         PyValueError::new_err(err.to_string())
     }
 }
 
-// Python class for training configuration
+// =========== PyEncoding ===========
+#[pyclass(get_all)]
+#[derive(Debug, Clone)]
+pub struct PyEncoding {
+    pub input_ids: Vec<u32>,
+    pub attention_mask: Vec<u32>,
+    pub token_type_ids: Vec<u32>,
+}
+
+#[pymethods]
+impl PyEncoding {
+    fn __repr__(&self) -> String {
+        format!(
+            "Encoding(input_ids={:?}, attention_mask={:?}, token_type_ids={:?})",
+            self.input_ids, self.attention_mask, self.token_type_ids
+        )
+    }
+
+    fn to_dict(&self, py: Python) -> PyResult<PyObject> {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("input_ids", self.input_ids.clone())?;
+        dict.set_item("attention_mask", self.attention_mask.clone())?;
+        dict.set_item("token_type_ids", self.token_type_ids.clone())?;
+        Ok(dict.into())
+    }
+}
+
+impl From<Encoding> for PyEncoding {
+    fn from(enc: Encoding) -> Self {
+        PyEncoding {
+            input_ids: enc.input_ids,
+            attention_mask: enc.attention_mask,
+            token_type_ids: enc.token_type_ids,
+        }
+    }
+}
+
+// =========== Config classes ===========
 #[pyclass(get_all, set_all)]
 #[derive(Debug, Clone, Default)]
 pub struct PyTrainConfig {
@@ -70,7 +109,6 @@ impl From<PyTrainConfig> for TrainingConfig {
     }
 }
 
-// Python class for Incremental Training Configuration
 #[pyclass(get_all, set_all)]
 #[derive(Debug, Clone)]
 pub struct PyIncrementalTrainingConfig {
@@ -106,26 +144,9 @@ impl PyIncrementalTrainingConfig {
             checkpoint_path,
             show_progress: show_progress.unwrap_or(true),
             special_tokens: special_tokens.unwrap_or_else(|| vec![
-                "<pad>".to_string(),
-                "<unk>".to_string(),
-                "<bos>".to_string(),
-                "<eos>".to_string(),
+                "<pad>".to_string(), "<unk>".to_string(),
+                "<s>".to_string(), "</s>".to_string(),
             ]),
-        }
-    }
-}
-
-impl From<IncrementalTrainingConfig> for PyIncrementalTrainingConfig {
-    fn from(config: IncrementalTrainingConfig) -> Self {
-        PyIncrementalTrainingConfig {
-            vocab_size: config.vocab_size,
-            min_frequency: config.min_frequency,
-            chunk_size: config.chunk_size,
-            merge_frequency: config.merge_frequency,
-            save_frequency: config.save_frequency,
-            checkpoint_path: config.checkpoint_path,
-            show_progress: config.show_progress,
-            special_tokens: config.special_tokens,
         }
     }
 }
@@ -141,16 +162,15 @@ impl From<PyIncrementalTrainingConfig> for IncrementalTrainingConfig {
             checkpoint_path: config.checkpoint_path,
             show_progress: config.show_progress,
             special_tokens: config.special_tokens,
-            n_threads: None, // Incremental training typically uses a single thread
+            n_threads: None,
         }
     }
 }
 
-// Python class for Incremental Training State
 #[pyclass(name = "IncrementalTrainingState")]
 #[derive(Debug, Clone)]
-pub struct PyIncrementalTrainingState {                  
-    pub inner : Arc<Mutex<IncrementalTrainingState>>,
+pub struct PyIncrementalTrainingState {
+    pub inner: Arc<Mutex<IncrementalTrainingState>>,
 }
 
 #[pymethods]
@@ -163,7 +183,7 @@ impl PyIncrementalTrainingState {
     }
 
     #[getter]
-    fn chunks_processed(&self) -> usize{
+    fn chunks_processed(&self) -> usize {
         self.inner.lock().unwrap().chunks_processed
     }
 
@@ -186,20 +206,19 @@ impl PyIncrementalTrainingState {
     fn word_segments_count(&self) -> usize {
         self.inner.lock().unwrap().word_segments.len()
     }
-    
+
     fn __repr__(&self) -> String {
         let state = self.inner.lock().unwrap();
         format!(
-            "IncrementalTrainingState(chunks_processed={}, total_documents={}, current_vocab_size={}, last_merge_iteration={}, word_segments_count={})",
-            state.chunks_processed, state.total_documents, state.current_vocab_size, state.last_merge_iteration, state.word_segments.len()
+            "IncrementalTrainingState(chunks={}, docs={}, vocab={}, last_merge={})",
+            state.chunks_processed, state.total_documents,
+            state.current_vocab_size, state.last_merge_iteration
         )
     }
-    
-    #[pyo3(text_signature = "(self)")]
+
     fn reconstruct_pair_freq(&mut self) -> PyResult<()> {
         let mut state = self.inner.lock()
-                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        // Call the method on the actual IncrementalTrainingState struct
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         state.reconstruct_pair_freq();
         Ok(())
     }
@@ -208,12 +227,11 @@ impl PyIncrementalTrainingState {
 impl From<IncrementalTrainingState> for PyIncrementalTrainingState {
     fn from(state: IncrementalTrainingState) -> Self {
         PyIncrementalTrainingState {
-            inner : Arc::new(Mutex::new(state)),
+            inner: Arc::new(Mutex::new(state)),
         }
     }
 }
 
-// Python class for BatchEncodingConfig
 #[pyclass(get_all, set_all)]
 #[derive(Debug, Clone, Default)]
 pub struct PyBatchEncodingConfig {
@@ -245,18 +263,6 @@ impl PyBatchEncodingConfig {
     }
 }
 
-impl From<BatchEncodingConfig> for PyBatchEncodingConfig {
-    fn from(config: BatchEncodingConfig) -> Self {
-        PyBatchEncodingConfig {
-            max_length: config.max_length,
-            parallel_threshold: config.parallel_threshold,
-            max_threads: config.max_threads,
-            use_thread_local_cache: config.use_thread_local_cache,
-            thread_cache_size: config.thread_cache_size,
-        }
-    }
-}
-
 impl From<PyBatchEncodingConfig> for BatchEncodingConfig {
     fn from(config: PyBatchEncodingConfig) -> Self {
         BatchEncodingConfig {
@@ -269,7 +275,7 @@ impl From<PyBatchEncodingConfig> for BatchEncodingConfig {
     }
 }
 
-// Python Iterator wrapper for incremental training
+// =========== PyCorpusIterator ===========
 #[pyclass]
 struct PyCorpusIterator {
     inner: Vec<String>,
@@ -280,16 +286,9 @@ struct PyCorpusIterator {
 impl PyCorpusIterator {
     #[new]
     fn new(corpus: Vec<String>) -> Self {
-        PyCorpusIterator {
-            inner: corpus,
-            index: 0,
-        }
+        PyCorpusIterator { inner: corpus, index: 0 }
     }
-    
-    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
-        slf
-    }
-    
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> { slf }
     fn __next__(mut slf: PyRefMut<Self>) -> Option<String> {
         if slf.index < slf.inner.len() {
             let item = slf.inner[slf.index].clone();
@@ -301,7 +300,7 @@ impl PyCorpusIterator {
     }
 }
 
-// Define a Python class for BPETokenizer
+// =========== PyBPETokenizer ===========
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct PyBPETokenizer {
@@ -312,194 +311,291 @@ pub struct PyBPETokenizer {
 impl PyBPETokenizer {
     #[new]
     fn new() -> Self {
-        Self {
-            tokenizer: Arc::new(Mutex::new(BPETokenizer::new())),
-        }
+        Self { tokenizer: Arc::new(Mutex::new(BPETokenizer::new())) }
     }
 
-    #[pyo3(text_signature = "(self, corpus, config=None)")]
     fn train(&mut self, corpus: Vec<String>, config: Option<PyTrainConfig>) -> PyResult<()> {
         let rust_config = config.map_or_else(TrainingConfig::default, |c| c.into());
-        let mut tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let mut tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         tokenizer.train(&corpus, rust_config);
         Ok(())
     }
 
-    #[pyo3(text_signature = "(self, corpus, config, state)")]
-    fn train_incremental(&mut self, py: Python, corpus: Vec<String>, config: PyIncrementalTrainingConfig, state: PyIncrementalTrainingState) -> PyResult<()> {
+    fn train_incremental(
+        &mut self, py: Python,
+        corpus: Vec<String>,
+        config: PyIncrementalTrainingConfig,
+        state: PyIncrementalTrainingState,
+    ) -> PyResult<()> {
         let rust_config = config.into();
-
         py.allow_threads(|| {
-            let mut inner_state = state.inner.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-            let mut tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let mut inner_state = state.inner.lock()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let mut tokenizer = self.tokenizer.lock()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             tokenizer.incremental_stream_train(corpus.into_iter(), rust_config, &mut *inner_state);
             Ok::<(), PyErr>(())
         })?;
-
         Ok(())
     }
 
-
-    #[pyo3(name = "train_stream", text_signature = "(self, corpus_iter, config)")]
-    fn train_incremental_iter(&mut self, corpus_iter: &Bound<'_, PyAny>, config: PyIncrementalTrainingConfig, state: &mut PyIncrementalTrainingState) -> PyResult<()> {
+    #[pyo3(name = "train_stream")]
+    fn train_incremental_iter(
+        &mut self,
+        corpus_iter: &Bound<'_, PyAny>,
+        config: PyIncrementalTrainingConfig,
+        state: &mut PyIncrementalTrainingState,
+    ) -> PyResult<()> {
         let rust_config = config.into();
         let py_iter = PyIterator::from_object(corpus_iter)?;
-
-        // Channel for line streaming
         let (sender, receiver) = crossbeam_channel::bounded::<String>(128);
-
-        // Clone tokenizer for the training thread
         let tokenizer_clone = self.tokenizer.clone();
-
-        // Creating a static handle to the shared state
         let state_clone = state.inner.clone();
 
-        // Spawn training in a new thread (streaming!)
         std::thread::spawn(move || {
             let mut tokenizer_guard = tokenizer_clone.lock().unwrap();
-            let mut inner_state_guard = state_clone.lock().unwrap();
-
-            tokenizer_guard.incremental_stream_train(receiver.into_iter(), rust_config, &mut *inner_state_guard);
+            let mut state_guard = state_clone.lock().unwrap();
+            tokenizer_guard.incremental_stream_train(
+                receiver.into_iter(), rust_config, &mut *state_guard
+            );
         });
 
-        // Feed Python iterator on this thread
         for item in py_iter {
             if let Ok(line) = item.and_then(|obj| obj.extract::<String>()) {
-                if sender.send(line).is_err() {
-                    break; // Receiver dropped
-                }
-            } else {
-                eprintln!("Skipping line: failed to extract string.");
+                if sender.send(line).is_err() { break; }
             }
         }
-
-        drop(sender); // Signal completion to training thread
-
+        drop(sender);
         Ok(())
     }
 
-    #[pyo3(text_signature = "(self, text)")]
+    // =========== ENCODE ===========
+    // encode → List[int], 
+    #[pyo3(signature = (text))]
     fn encode(&mut self, text: String) -> PyResult<Vec<u32>> {
-        let mut tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        tokenizer.encode(&text).map_err(PyErr::from)
+        let mut tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        tokenizer.encode_fast(&text).map_err(PyErr::from)
     }
 
-    #[pyo3(signature = (texts, add_special_tokens=false, config=None))]
+    // encode_batch → List[List[int]],  
+    #[pyo3(signature = (texts, config=None))]
     fn encode_batch(
-        &mut self, 
-        texts: Vec<String>, 
-        add_special_tokens: bool,  // Optional with default
-        config: Option<PyBatchEncodingConfig>
+        &self,
+        texts: Vec<String>,
+        config: Option<PyBatchEncodingConfig>,
     ) -> PyResult<Vec<Vec<u32>>> {
         let rust_config = config.map_or_else(BatchEncodingConfig::default, |c| c.into());
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        tokenizer.encode_batch(&texts, rust_config, add_special_tokens)
+        tokenizer.encode_batch_fast(&texts, rust_config)
             .map_err(PyErr::from)
     }
 
-    #[pyo3(text_signature = "(self, text, /)")]
-    fn encode_with_special_tokens(&mut self, text: String) -> PyResult<Vec<u32>> {
+    // encode_plus → PyEncoding with masks, for fine-tuning/inference
+    #[pyo3(signature = (
+        text,
+        text_b=None,
+        max_length=None,
+        padding=false,
+        truncation=false,
+        add_special_tokens=false
+    ))]
+    fn encode_plus(
+        &mut self,
+        text: String,
+        text_b: Option<String>,
+        max_length: Option<usize>,
+        padding: bool,
+        truncation: bool,
+        add_special_tokens: bool,
+    ) -> PyResult<PyEncoding> {
         let mut tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        tokenizer.encode_with_special_tokens(&text).map_err(PyErr::from)
+        tokenizer.encode(
+            &text,
+            text_b.as_deref(),
+            max_length,
+            padding,
+            truncation,
+            add_special_tokens,
+        )
+        .map(PyEncoding::from)
+        .map_err(PyErr::from)
     }
 
-    #[pyo3(text_signature = "(self, token_ids)")]
+    // encode_batch_plus → List[PyEncoding]
+    #[pyo3(signature = (
+        texts,
+        texts_b=None,
+        config=None,
+        max_length=None,
+        padding=false,
+        truncation=false,
+        add_special_tokens=false
+    ))]
+    fn encode_batch_plus(
+        &self,
+        texts: Vec<String>,
+        texts_b: Option<Vec<String>>,
+        config: Option<PyBatchEncodingConfig>,
+        max_length: Option<usize>,
+        padding: bool,
+        truncation: bool,
+        add_special_tokens: bool,
+    ) -> PyResult<Vec<PyEncoding>> {
+        let rust_config = config.map_or_else(BatchEncodingConfig::default, |c| c.into());
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        tokenizer.encode_batch(
+            &texts,
+            texts_b.as_deref(),
+            rust_config,
+            max_length,
+            padding,
+            truncation,
+            add_special_tokens,
+        )
+        .map(|encs| encs.into_iter().map(PyEncoding::from).collect())
+        .map_err(PyErr::from)
+    }
+
+    // =========== DECODE ===========
     fn decode(&self, token_ids: Vec<u32>) -> PyResult<String> {
-        let tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.decode(&token_ids))
     }
 
-    #[pyo3(text_signature = "(self, path)")]
+    // =========== BATCH DECODE ===========
+    fn decode_batch(&self, batch_ids: Vec<Vec<u32>>) -> PyResult<Vec<String>> {
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(tokenizer.decode_batch(&batch_ids))
+    }
+
+    // =========== save / load ===========
     fn save(&self, py: Python, path: String) -> PyResult<()> {
         py.allow_threads(|| {
-            let tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let tokenizer = self.tokenizer.lock()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             tokenizer.save(&path).map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
 
     #[staticmethod]
-    #[pyo3(text_signature = "(path)")]
     fn load(py: Python, path: String) -> PyResult<PyBPETokenizer> {
-        
         py.allow_threads(|| {
             BPETokenizer::load(&path)
-                .map(|tokenizer| {
-                    let py_tokenizer = PyBPETokenizer { 
-                        // wrap the loaded tokenizer for thread-safety, doing it manually
-                        tokenizer : Arc::new(Mutex::new(tokenizer)),
-                    };
-                    py_tokenizer
+                .map(|tokenizer| PyBPETokenizer {
+                    tokenizer: Arc::new(Mutex::new(tokenizer)),
                 })
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
-    
-    #[pyo3(text_signature = "(self, path, state, format)")]
-    fn save_checkpoint(&self, py: Python, path: String, state: &PyIncrementalTrainingState, format: String) -> PyResult<()> {
-        py.allow_threads(|| {
-            // Change `.unwrap()` to properly handle the PoisonError
-            let rust_state = state.inner.lock()
-                .map_err(|e| PyValueError::new_err(format!("Cannot save checkpoint: lock was poisoned by a failing thread. Original error: {}", e)))?;
 
+    fn save_checkpoint(
+        &self, py: Python,
+        path: String,
+        state: &PyIncrementalTrainingState,
+        format: String,
+    ) -> PyResult<()> {
+        py.allow_threads(|| {
+            let rust_state = state.inner.lock()
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
             let rust_state_clone = (*rust_state).clone();
             let mut format_str: &str = format.as_str();
-            let tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let tokenizer = self.tokenizer.lock()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             tokenizer.save_checkpoint(&path, rust_state_clone, &mut format_str)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
 
     #[staticmethod]
-    #[pyo3(text_signature = "(path)")]
-    fn load_checkpoint(py: Python, path: String) -> PyResult<(PyBPETokenizer, PyIncrementalTrainingState)> {
+    fn load_checkpoint(
+        py: Python,
+        path: String,
+    ) -> PyResult<(PyBPETokenizer, PyIncrementalTrainingState)> {
         py.allow_threads(|| {
             BPETokenizer::load_checkpoint(&path)
                 .map(|(tokenizer, state)| {
-                    let py_tokenizer = PyBPETokenizer { 
-                        // wrap the loaded tokenizer for thread-safety, doing it manually
-                        tokenizer : Arc::new(Mutex::new(tokenizer)),
+                    let py_tokenizer = PyBPETokenizer {
+                        tokenizer: Arc::new(Mutex::new(tokenizer)),
                     };
-                    
-                    let py_state = state.into();
-                    (py_tokenizer, py_state)
+                    (py_tokenizer, state.into())
                 })
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
-    
-    #[pyo3(text_signature = "(self)")]
+
+    // =========== getters ===========
     fn get_stats(&self) -> PyResult<PyBPEStats> {
-        let tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.get_stats().into())
     }
-    
-    #[getter]
-    fn print_vocab(&self) -> PyResult<String> {
-        let tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let vocab_str = tokenizer.vocab.iter()
-            .map(|(token, id)| format!("{}: {}", token, id))
-            .collect::<Vec<String>>()
-            .join("\n");
-        
-        Ok(vocab_str)
+
+    fn get_vocab(&self) -> PyResult<std::collections::HashMap<String, u32>> {
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(tokenizer.vocab.iter().map(|(k, &v)| (k.clone(), v)).collect())
+    }
+
+    fn token_to_id(&self, token: String) -> PyResult<Option<u32>> {
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(tokenizer.vocab.get(&token).copied())
+    }
+
+    fn id_to_token(&self, id: u32) -> PyResult<Option<String>> {
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(tokenizer.reverse_vocab.get(&id).cloned())
+    }
+
+    fn add_tokens(&mut self, tokens: Vec<String>) -> PyResult<usize> {
+        let mut tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let mut added = 0;
+        for token in tokens {
+            if !tokenizer.vocab.contains_key(&token) {
+                let new_id = tokenizer.vocab.len() as u32;
+                tokenizer.vocab.insert(token.clone(), new_id);
+                tokenizer.reverse_vocab.insert(new_id, token);
+                added += 1;
+            }
+        }
+        Ok(added)
     }
 
     #[getter]
     fn vocab_size(&self) -> PyResult<usize> {
-        let tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.vocab.len())
     }
-    
+
     #[getter]
     fn num_merges(&self) -> PyResult<usize> {
-        let tokenizer = self.tokenizer.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.merges.len())
+    }
+
+    #[getter]
+    fn print_vocab(&self) -> PyResult<String> {
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(tokenizer.vocab.iter()
+            .map(|(token, id)| format!("{}: {}", token, id))
+            .collect::<Vec<_>>()
+            .join("\n"))
     }
 }
 
-// Define a Python class for BPEStats
+// =========== PyBPEStats ===========
 #[pyclass(get_all)]
 #[derive(Debug, Clone)]
 struct PyBPEStats {
@@ -518,12 +614,7 @@ impl PyBPEStats {
         num_special_tokens: usize,
         num_character_tokens: usize,
     ) -> Self {
-        PyBPEStats {
-            vocab_size,
-            num_merges,
-            num_special_tokens,
-            num_character_tokens,
-        }
+        PyBPEStats { vocab_size, num_merges, num_special_tokens, num_character_tokens }
     }
 }
 
@@ -538,9 +629,10 @@ impl From<BPEStats> for PyBPEStats {
     }
 }
 
-// This macro creates the Python module
+// =========== Module ===========
 #[pymodule]
 fn mayatok_bpe(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyEncoding>()?;
     m.add_class::<PyTrainConfig>()?;
     m.add_class::<PyIncrementalTrainingConfig>()?;
     m.add_class::<PyIncrementalTrainingState>()?;
@@ -550,17 +642,3 @@ fn mayatok_bpe(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCorpusIterator>()?;
     Ok(())
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
