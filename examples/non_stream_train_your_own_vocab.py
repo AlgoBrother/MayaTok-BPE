@@ -1,4 +1,4 @@
-import mayatok_bpe as bpe
+import mayatok as bpe
 
 # Non-streaming BPE Tokenizer Training Example (Recommended for smaller datasets)
 

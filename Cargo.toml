@@ -1,6 +1,6 @@
- [package]
- name = "mayatok-bpe"
- version = "0.1.0"
+[package]
+ name = "mayatok"
+ version = "0.2.0"
  authors = ["Ashwin Rajhans <ashwinrajhansofficial@gmail.com>"]
  description = "A BPE Tokenizer developed in Rust. "
  edition = "2024"
@@ -25,14 +25,12 @@
  serde_json = "1.0.140"
  thiserror = "2.0.12"
  unicode-normalization = "0.1"
+ dirs = "5.0.0"
+ ureq = "2.7.0"
 
  [lib]
-name = "mayatok_bpe"
+name = "mayatok"
 crate-type = ["cdylib"]
 
 [profile.release]
 debug = true
-
-
-
-

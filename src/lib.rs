@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use pyo3::{prelude::*, types::PyIterator};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use std::path::PathBuf;
+
 
 mod text_normalizer;
 mod bpe_tokenizer_lib;
@@ -10,6 +12,65 @@ pub use bpe_tokenizer_lib::{
     TokenizerError, IncrementalTrainingConfig, IncrementalTrainingState, Encoding
 };
 
+// ========== VOCAB FILE MANAGEMENT ===========
+fn get_cache_dir() -> PathBuf {
+    let mut path = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."));
+    path.push("mayatok");
+    std::fs::create_dir_all(&path).ok();
+    path
+}
+
+fn load_or_download(name: &str, url: &str) -> Result<PathBuf, String> {
+    let mut cache_path = get_cache_dir();
+    cache_path.push(format!("{}.json", name));
+
+    if cache_path.exists() {
+        return Ok(cache_path);
+    }
+
+    // Download
+    let response = ureq::get(url)
+        .call()
+        .map_err(|e| format!("Download failed: {}", e))?;
+    let content = response.into_string()
+        .map_err(|e| format!("Read failed: {}", e))?;
+    std::fs::write(&cache_path, content)
+        .map_err(|e| format!("Write failed: {}", e))?;
+
+    Ok(cache_path)
+}
+
+lazy_static::lazy_static! {
+    static ref REGISTRY: std::collections::HashMap<&'static str, &'static str> = {
+        let mut m = std::collections::HashMap::new();
+        m.insert("mayatok-base", 
+            "https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json");
+        m
+    };
+}
+
+#[pyfunction]
+fn get_tokenizer(py: Python, name: String) -> PyResult<PyBPETokenizer> {
+    let url = REGISTRY.get(name.as_str())
+        .ok_or_else(|| PyValueError::new_err(
+            format!("Unknown tokenizer '{}'. Available: {:?}", name, 
+                    REGISTRY.keys().collect::<Vec<_>>())
+        ))?;
+
+    let path = load_or_download(&name, url)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+
+    PyBPETokenizer::load(py, path.to_string_lossy().to_string())
+}
+
+#[pyfunction]
+fn list_tokenizers() -> Vec<String> {
+    REGISTRY.keys().map(|s| s.to_string()).collect()
+}
+// =========== VOCAB FILES ENDS ===========
+
+// =========== PyErr conversion ===========
 impl From<TokenizerError> for PyErr {
     fn from(err: TokenizerError) -> PyErr {
         PyValueError::new_err(err.to_string())
@@ -631,7 +692,10 @@ impl From<BPEStats> for PyBPEStats {
 
 // =========== Module ===========
 #[pymodule]
-fn mayatok_bpe(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn mayatok(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add_function(wrap_pyfunction!(get_tokenizer, m)?)?;
+    m.add_function(wrap_pyfunction!(list_tokenizers, m)?)?;
     m.add_class::<PyEncoding>()?;
     m.add_class::<PyTrainConfig>()?;
     m.add_class::<PyIncrementalTrainingConfig>()?;
