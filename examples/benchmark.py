@@ -3,12 +3,11 @@ import mayatok_bpe as bpe
 from transformers import AutoTokenizer
 import tiktoken
 
-<<<<<<< HEAD
 # ======= Load tokenizers =======
 tokenizer = bpe.PyBPETokenizer.load(
     r"path\to\tokenizer.json"
 )
-=======
+
 # Load tiktoken (cl100k_base is GPT-4's tokenizer, p50k_base is GPT-2/3's)
 tiktoken_cl100k = tiktoken.get_encoding("cl100k_base")
 tiktoken_p50k = tiktoken.get_encoding("p50k_base")
