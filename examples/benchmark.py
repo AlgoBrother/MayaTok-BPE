@@ -4,10 +4,8 @@ from transformers import AutoTokenizer
 import tiktoken
 
 # ======= Load tokenizers =======
-tokenizer = bpe.PyBPETokenizer.load(
-    r"path\to\tokenizer.json"
-)
-=======
+tokenizer = bpe.get_tokenizer("mayatok-base")
+
 # Load tiktoken (cl100k_base is GPT-4's tokenizer, p50k_base is GPT-2/3's)
 tiktoken_cl100k = tiktoken.get_encoding("cl100k_base")
 tiktoken_p50k = tiktoken.get_encoding("p50k_base")
@@ -20,10 +18,7 @@ tiktoken_p50k = tiktoken.get_encoding("p50k_base")
 hf_falcon = AutoTokenizer.from_pretrained("tiiuae/falcon-7b", use_fast=True)
 hf_gpt2 = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 
-# Load MayaTok
-my_tokenizer = bpe.PyBPETokenizer().load(r"bpe_tokenizer_py.json") 
 
->>>>>>> bc0711d6f3f244e68d3e58fabbbd55ae72b69b8b
 batch_config = bpe.PyBatchEncodingConfig(
     max_length=512, parallel_threshold=32,
     max_threads=16, use_thread_local_cache=True, thread_cache_size=10000,
