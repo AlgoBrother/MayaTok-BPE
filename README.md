@@ -70,9 +70,9 @@ Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-asset
 To use MayaTok with Python:
 
 ```python
-import mayatok_bpe as bpe
+import mayatok as bpe
 
-my_tokenizer = bpe.PyBPETokenizer.load("bpe_tokenizer_py.json")
+my_tokenizer =  bpe.get_tokenizer("mayatok-base")
 test = "Hello, world!"
 tokens = my_tokenizer.encode(test)
 print(tokens)
@@ -82,8 +82,8 @@ print(decoded_text)
 
 Output of the sample code above
 ```
-[732, 21843, 345, 535, 576, 335, 725]
-Hello , world !
+[8486, 345, 2444, 725]
+Hello, world!
 ```
 
 ## 📈 Benchmarks
@@ -92,17 +92,23 @@ Hello , world !
 
 | Tokenizer   | Tokens/sec | Avg Compression Ratio |
 | ----------- | ---------- | --------------------- |
-| **MayaTok-BPE** | **59,066**     | **2.44**                  |
-| Falcon-7B   | 784,577    | 3.26                  |
-| GPT2        | 1,116,972  | 2.94                  |
+| **MayaTok-BPE** | **2,436,136**     | **4.28**                  |
+| tiktoken-cl100k   | 262,016    | 3.36              |
+| tiktoken-p50k   | 288,657    | 3.27             |
+| GPT2        | 1,227,199    | 2.94             |
+| Falcon-7B   | 946,393   | 3.26              |
+
 
 ### Normal Encoding
 
 | Tokenizer   | Tokens/sec | Compression Ratio |
 | ----------- | ---------- | ----------------- |
-| **MayaTok-BPE** | **5,471**      | **2.19**              |
-| Falcon-7B   | 186,368    | 4.38              |
-| GPT2        | 266,627    | 4.38              |
+| **MayaTok** | **1,038,501**      | **4.28**              |
+| tiktoken-cl100k   | 1,184,446    | 3.36              |
+| tiktoken-p50k   | 1,591,801    | 3.27             |
+| GPT2        | 252,369    | 2.94             |
+| Falcon-7B   | 172,114   | 3.26              |
+
 
 **Note: Performance optimizations are ongoing**
 
@@ -127,11 +133,11 @@ Apache-2.0
 
 - [ ] PyPI package distribution
       
-- [ ] the `examples` folder has lot of python implementation. Will experiment to integrate this in rust side of code and make python side of code more smaller and easier for users.
+- [✓] the `examples` folder has lot of python implementation. Will experiment to integrate this in rust side of code and make python side of code more smaller and easier for users.
       
-- [ ] Enhanced CPU utilization and faster merging algorithms
+- [✓] Enhanced CPU utilization and faster merging algorithms
       
-- [ ] Improved merge quality and compression ratios
+- [✓] Improved merge quality and compression ratios
       
 - [ ] Bincode support for faster model loading
       
