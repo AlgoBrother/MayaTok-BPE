@@ -23,7 +23,7 @@ use lazy_static::lazy_static;
 // =========== Regex for Pre-tokenization ============
 lazy_static! {
     static ref PRE_TOKENIZER_RE: Regex =
-        Regex::new(r"\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+").unwrap();
+        Regex::new(r"\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+|\s+").unwrap();
 }
 
 // =========== Error handling ============
