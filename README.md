@@ -110,7 +110,7 @@ Hello, world!
 | Falcon-7B   | 172,114   | 3.26              |
 
 
-**Note: Performance optimizations are ongoing**
+**Note: Performance optimizations are ongoing** (MAY CHANGE SINCE I AM APPLYING NEW BENCHMARK METHOD.)
 
 ## 💽 Corpus Used for V1
 
