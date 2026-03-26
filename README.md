@@ -141,6 +141,8 @@ Apache-2.0
       
 - [ ] Bincode support for faster model loading
       
+- [ ] New Line Format support (in progress)
+      
 
 
   
