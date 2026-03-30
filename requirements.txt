@@ -1,0 +1,6 @@
+numpy
+tqdm
+regex
+datasets
+torch
+transformers

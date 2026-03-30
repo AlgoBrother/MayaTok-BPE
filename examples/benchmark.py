@@ -35,7 +35,7 @@ _ = tiktoken_cl100k.encode_batch(["warmup"] * 5)
 _ = tiktoken_p50k.encode_batch(["warmup"] * 5)
 
 # === Load corpus =
-with open(r"examples\test_corpus.txt", "r", encoding="utf-8") as f:
+with open(r"examples/test_corpus.txt", "r", encoding="utf-8") as f:
     texts = f.readlines()
 
 # ============== Benchmark helpers ===================
