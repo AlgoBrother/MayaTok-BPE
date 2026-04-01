@@ -1,7 +1,7 @@
 import os
 import requests
 import time
-import mayatok_bpe as bpe
+import mayatok as bpe
 from urllib.parse import urlparse
 
 # --- Data Streaming Functions ---
@@ -147,7 +147,7 @@ def main():
     source = ""  # Change this to your actual file path or URL
 
     increm_train_config = bpe.PyIncrementalTrainingConfig(
-        vocab_size=20000, # Final vocabulary size
+        vocab_size=50000, # Final vocabulary size
         min_frequency=100,  # Increased for higher quality merges
         chunk_size=50000, # Increased for more stable stats
         merge_frequency=800, # Decreased frequency for better performance
