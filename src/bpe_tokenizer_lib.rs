@@ -380,51 +380,61 @@ fn encode_text_inner(
     unk_id: u32,
     cache: &mut LruCache<String, Arc<Vec<u32>>>,
 ) -> TokenizedResult<Vec<u32>> {
-    // Special token check
     if let Some(&id) = special_tokens_ids.get(text) {
         return Ok(vec![id]);
     }
-
-    // Cache check
     if let Some(cached) = cache.get(text) {
         return Ok((**cached).clone());
     }
 
     let normalizer = TextNormalizer::new().to_strip_accents();
-    let normalized = normalizer.normalize(text);
     let mut ids: Vec<u32> = Vec::new();
 
-    for word in PRE_TOKENIZER_RE.find_iter(&normalized).map(|m| m.as_str()) {
-        let mut chars: Vec<String> = word.chars().map(|c| c.to_string()).collect();
-        chars.push(end_of_word_token.to_string());
+    // iterate raw text, normalize only word segments
+    for word in PRE_TOKENIZER_RE.find_iter(text).map(|m| m.as_str()) {
+        let is_word = word.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
+
+        let word_normalized = if is_word {
+            normalizer.normalize(word)
+        } else {
+            word.to_string() // \n, \t, spaces — pass through raw, never normalize
+        };
+
+        let mut chars: Vec<String> = word_normalized.chars().map(|c| c.to_string()).collect();
+        if is_word {
+            chars.push(end_of_word_token.to_string());
+        }
 
         let mut word_ids: Vec<u32> = chars.iter()
             .map(|s| *vocab.get(s).unwrap_or(&unk_id))
             .collect();
 
-        loop {
-            if word_ids.len() < 2 { break; }
-            let best = word_ids.windows(2).enumerate().filter_map(|(pos, w)| {
-                let pair = TokenPair(w[0], w[1]);
-                merge_rank.get(&pair).map(|&rank| (rank, pos, pair))
-            }).min_by_key(|&(rank, _, _)| rank);
+        if is_word {
+            loop {
+                if word_ids.len() < 2 { break; }
+                let best = word_ids.windows(2).enumerate().filter_map(|(pos, w)| {
+                    let pair = TokenPair(w[0], w[1]);
+                    merge_rank.get(&pair).map(|&rank| (rank, pos, pair))
+                }).min_by_key(|&(rank, _, _)| rank);
 
-            match best {
-                None => break,
-                Some((_, pos, pair)) => {
-                    let new_id = merge_id[&pair];
-                    word_ids[pos] = new_id;
-                    let mut write = pos + 1;
-                    let mut read = pos + 2;
-                    while read < word_ids.len() {
-                        word_ids[write] = word_ids[read];
-                        write += 1;
-                        read += 1;
+                match best {
+                    None => break,
+                    Some((_, pos, pair)) => {
+                        let new_id = merge_id[&pair];
+                        word_ids[pos] = new_id;
+                        let mut write = pos + 1;
+                        let mut read = pos + 2;
+                        while read < word_ids.len() {
+                            word_ids[write] = word_ids[read];
+                            write += 1;
+                            read += 1;
+                        }
+                        word_ids.truncate(write);
                     }
-                    word_ids.truncate(write);
                 }
             }
         }
+
         ids.extend(word_ids);
     }
 
@@ -852,10 +862,11 @@ impl BPETokenizer {
             }
         }
 
+        // EOW marks end of a word — just strip it, the space token handles spacing
         let clean_text = parts.join("")
-            .replace(&self.end_of_word_token, " ")
-            .replace('⁄', " ")
-            .replace('\u{2044}', " ");
+            .replace(&self.end_of_word_token, "")  // remove, don't replace with space
+            .replace('⁄', "")
+            .replace('\u{2044}', "");
 
         lazy_static! {
             static ref PUNCT_RE: Regex = Regex::new(r" ([.,!?;:])").unwrap();
@@ -886,21 +897,32 @@ impl BPETokenizer {
         // --- Initial segmentation (parallel) ---
         let init_results: Vec<(FastHashMap<Vec<u32>, usize>, HashSet<String>)> =
             corpus.par_iter().map(|doc| {
-                let norm = normalizer.normalize(doc);
                 let mut local_segs: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
                 let mut local_chars: HashSet<String> = HashSet::new();
 
-                for word in PRE_TOKENIZER_RE.find_iter(&norm).map(|m| m.as_str()) {
-                    let mut chars: Vec<String> = word.chars().map(|c| c.to_string()).collect();
-                    chars.push(self.end_of_word_token.clone());
-                    for ch in word.chars() { local_chars.insert(ch.to_string()); }
+                for word in PRE_TOKENIZER_RE.find_iter(doc.as_str()).map(|m| m.as_str()) {
+                    let is_word = word.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
+                    
+                    let word_normalized = if is_word {
+                        normalizer.normalize(word)
+                    } else {
+                        word.to_string()
+                    };
+
+                    let mut chars: Vec<String> = word_normalized.chars().map(|c| c.to_string()).collect();
+                    if is_word {
+                        chars.push(self.end_of_word_token.clone()); // EOW only on words
+                    }
+                    
+                    for ch in &chars { local_chars.insert(ch.clone()); }
+                    
                     let ids: Vec<u32> = chars.iter()
                         .map(|s| *self.vocab.get(s).unwrap_or(&self.unk_ids()))
                         .collect();
                     *local_segs.entry(ids).or_insert(0) += 1;
                 }
                 (local_segs, local_chars)
-            }).collect();
+             }).collect()
 
         let mut word_segments: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
         let mut init_chars: HashSet<String> = HashSet::new();
@@ -1085,13 +1107,25 @@ impl BPETokenizer {
         let chunk_results: Vec<(FastHashMap<Vec<u32>, usize>, HashSet<String>)> = chunk
             .par_iter()
             .map(|doc| {
-                let norm = normalizer.normalize(doc);
                 let mut local_segs: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
                 let mut local_chars: HashSet<String> = HashSet::new();
-                for word in PRE_TOKENIZER_RE.find_iter(&norm).map(|m| m.as_str()) {
-                    let mut chars: Vec<String> = word.chars().map(|c| c.to_string()).collect();
-                    chars.push(self.end_of_word_token.clone());
+
+                for word in PRE_TOKENIZER_RE.find_iter(doc.as_str()).map(|m| m.as_str()) {
+                    let is_word = word.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
+
+                    let word_normalized = if is_word {
+                        normalizer.normalize(word)
+                    } else {
+                        word.to_string()
+                    };
+
+                    let mut chars: Vec<String> = word_normalized.chars().map(|c| c.to_string()).collect();
+                    if is_word {
+                        chars.push(self.end_of_word_token.clone());
+                    }
+
                     for ch in &chars { local_chars.insert(ch.clone()); }
+
                     let ids: Vec<u32> = chars.iter()
                         .map(|s| *self.vocab.get(s).unwrap_or(&self.unk_ids()))
                         .collect();
