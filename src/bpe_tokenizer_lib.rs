@@ -23,7 +23,7 @@ use lazy_static::lazy_static;
 // =========== Regex for Pre-tokenization ============
 lazy_static! {
     static ref PRE_TOKENIZER_RE: Regex =
-        Regex::new(r"\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+|\s+").unwrap();
+        Regex::new(r"\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+|\n[ \t]*|[ \t]+").unwrap();
 }
 
 // =========== Error handling ============
@@ -380,9 +380,13 @@ fn encode_text_inner(
     unk_id: u32,
     cache: &mut LruCache<String, Arc<Vec<u32>>>,
 ) -> TokenizedResult<Vec<u32>> {
+
+    // check if text is a special token
     if let Some(&id) = special_tokens_ids.get(text) {
         return Ok(vec![id]);
     }
+
+    // check cache 
     if let Some(cached) = cache.get(text) {
         return Ok((**cached).clone());
     }
@@ -604,10 +608,28 @@ impl BPETokenizer {
 
         vocab.entry(eow_token.clone()).or_insert_with(|| { let id = next_id; next_id += 1; id });
 
+        let indent_tokens = [
+            "\n    ",     // 4 spaces (Python standard)
+            "\n        ", // 8 spaces (double indent)
+            "\n\t",       // tab indent
+            "\n\t\t",     // double tab
+            "\n  ",       // 2 spaces (JS/Rust sometimes)
+            "    ",       // 4 spaces standalone (for mid-line)
+        ];
+        for token in &indent_tokens {
+            vocab.entry(token.to_string()).or_insert_with(|| {
+                let id = next_id; 
+                next_id += 1;
+                id
+            });
+        }
+
         let mut special_tokens_ids: FastHashMap<String, u32> = FastHashMap::default();
         for token in &config.special_tokens {
             let id = vocab.entry(token.clone()).or_insert_with(|| {
-                let id = next_id; next_id += 1; id
+                let id = next_id; 
+                next_id += 1;
+                id
             });
             special_tokens_ids.insert(token.clone(), *id);
         }
@@ -846,7 +868,6 @@ impl BPETokenizer {
     // =========== Decoder ============
     pub fn decode(&self, token_ids: &[u32]) -> String {
         let mut parts: Vec<&str> = Vec::with_capacity(token_ids.len());
-
         for &id in token_ids {
             match self.reverse_vocab.get(&id) {
                 None => parts.push(&self.unknown_tokens),
@@ -861,17 +882,12 @@ impl BPETokenizer {
                 }
             }
         }
-
-        // EOW marks end of a word — just strip it, the space token handles spacing
-        let clean_text = parts.join("")
-            .replace(&self.end_of_word_token, "")  // remove, don't replace with space
+        parts.join("")
+            .replace(&self.end_of_word_token, "")
             .replace('⁄', "")
-            .replace('\u{2044}', "");
-
-        lazy_static! {
-            static ref PUNCT_RE: Regex = Regex::new(r" ([.,!?;:])").unwrap();
-        }
-        PUNCT_RE.replace_all(clean_text.trim(), "$1").to_string()
+            .replace('\u{2044}', "")
+            .trim()
+            .to_string()
     }
 
 
@@ -922,7 +938,7 @@ impl BPETokenizer {
                     *local_segs.entry(ids).or_insert(0) += 1;
                 }
                 (local_segs, local_chars)
-             }).collect()
+             }).collect();
 
         let mut word_segments: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
         let mut init_chars: HashSet<String> = HashSet::new();
