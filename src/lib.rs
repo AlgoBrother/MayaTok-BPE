@@ -29,12 +29,16 @@ fn load_or_download(name: &str, url: &str) -> Result<PathBuf, String> {
         return Ok(cache_path);
     }
 
-    // Download
+    // Download with no size limit
     let response = ureq::get(url)
         .call()
         .map_err(|e| format!("Download failed: {}", e))?;
-    let content = response.into_string()
+    
+    let mut reader = response.into_reader();
+    let mut content = Vec::new();
+    std::io::Read::read_to_end(&mut reader, &mut content)
         .map_err(|e| format!("Read failed: {}", e))?;
+    
     std::fs::write(&cache_path, content)
         .map_err(|e| format!("Write failed: {}", e))?;
 
