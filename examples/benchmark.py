@@ -5,7 +5,7 @@ import tiktoken
 
 # ======= Load tokenizers =======
 # tokenizer = bpe.get_tokenizer("mayatok-base")
-tokenizer = bpe.PyBPETokenizer.load("/home/ashwin0010/coding_projects/DATASET/mayatok_v2_output.json")
+tokenizer = bpe.PyBPETokenizer.load("where-your-checkpoint-path-is-located")
 
 # Load tiktoken (cl100k_base is GPT-4's tokenizer, p50k_base is GPT-2/3's)
 tiktoken_cl100k = tiktoken.get_encoding("cl100k_base")
