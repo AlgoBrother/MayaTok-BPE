@@ -34,24 +34,7 @@ maturin build --release
 pip install target/wheels/*.whl
 ```
 
-
-## 📥 Download Pretrained Vocab
-
-Download the trained vocab and merges:
-
-### Quick Start (Recommended)
-
-#### Using Curl
-
-```bash
-curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/mayatok_vocab_v2.json
-```
-
-#### Using Invoke-WebRequest 
-
-```bash
-Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/mayatok_vocab_v2.json
-```
+### Quick Start 
 
 ### Create your own Vocab 
 
@@ -72,7 +55,7 @@ To use MayaTok with Python:
 ```python
 import mayatok as bpe
 
-my_tokenizer =  bpe.get_tokenizer("mayatok-base")
+my_tokenizer =  bpe.get_tokenizer("v2-100k") # or 'mayatok-base' if you wish to use v1 tokenizer
 test = "Hello, world!"
 tokens = my_tokenizer.encode(test)
 print(tokens)
@@ -82,7 +65,7 @@ print(decoded_text)
 
 Output of the sample code above
 ```
-[8486, 345, 2444, 725]
+[11608, 77, 3641, 62]
 Hello, world!
 ```
 
