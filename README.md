@@ -131,7 +131,7 @@ Apache-2.0
       
 - [✓] Improved merge quality and compression ratios
       
-- [ ] Bincode support for faster model loading
+- [✓] Bincode support for faster model loading
       
 - [✓] New Line Format support
       
