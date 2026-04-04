@@ -5,8 +5,32 @@ build-backend = "maturin"
 [project]
 name = "mayatok"
 version = "0.2.0"
+description = "High performance BPE tokenizer written in Rust with Python bindings"
+readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+
 authors = [
-    {name = "Ashwin Rajhans",
-    email = "ashwinrajhansofficial@gmail.com"}
+    { name = "Ashwin Rajhans", email = "ashwinrajhansofficial@gmail.com" }
 ]
+
+keywords = ["tokenizer", "bpe", "nlp", "rust", "text processing", "machine learning", "llm"]
+
+classifiers = [
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: Text Processing",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "mayatok"
+
+[project.urls]
+Homepage = "https://github.com/AlgoBrother/MayaTok-BPE"
+Repository = "https://github.com/AlgoBrother/MayaTok-BPE"
+"Bug Tracker" = "https://github.com/AlgoBrother/MayaTok-BPE/issues"
