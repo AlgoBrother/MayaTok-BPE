@@ -21,9 +21,16 @@ use regex::Regex;
 use lazy_static::lazy_static;
 
 // =========== Regex for Pre-tokenization ============
+// lazy_static! {
+//     static ref PRE_TOKENIZER_RE: Regex =
+//         Regex::new(r"\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+|\n[ \t]*|[ \t]+").unwrap();
+// }
+
 lazy_static! {
     static ref PRE_TOKENIZER_RE: Regex =
-        Regex::new(r"\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+|\n[ \t]*|[ \t]+").unwrap();
+        Regex::new(
+            r"(?i:'s|'t|'re|'ve|'m|'ll|'d)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s*\n[ \t]*|\s+"
+        ).unwrap();
 }
 
 // =========== Error handling ============
@@ -396,12 +403,21 @@ fn encode_text_inner(
 
     // iterate raw text, normalize only word segments
     for word in PRE_TOKENIZER_RE.find_iter(text).map(|m| m.as_str()) {
-        let is_word = word.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
+        let first = word.chars().next().unwrap_or(' ');
+        let is_word = if first == ' ' || first == '\t' {
+            word.chars().nth(1).map(|c| c.is_alphanumeric()).unwrap_or(false)
+        } else {
+            first.is_alphanumeric()
+        };
 
         let word_normalized = if is_word {
-            normalizer.normalize(word)
+        let leading = if word.starts_with(' ') { " " } 
+                    else if word.starts_with('\t') { "\t" }
+                    else { "" };
+            let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
+            format!("{}{}", leading, normalizer.normalize(word_part))
         } else {
-            word.to_string() // \n, \t, spaces — pass through raw, never normalize
+            word.to_string()
         };
 
         let mut chars: Vec<String> = word_normalized.chars().map(|c| c.to_string()).collect();
@@ -409,9 +425,16 @@ fn encode_text_inner(
             chars.push(end_of_word_token.to_string());
         }
 
-        let mut word_ids: Vec<u32> = chars.iter()
-            .map(|s| *vocab.get(s).unwrap_or(&unk_id))
-            .collect();
+        let mut word_ids: Vec<u32> = chars.iter().flat_map(|s| {
+            if let Some(&id) = vocab.get(s) {
+                vec![id]
+            } else {
+                s.as_bytes().iter().map(|byte| {
+                    let key = format!("<0x{:02X}>", byte);
+                    vocab.get(&key).copied().unwrap_or(unk_id)
+                }).collect()
+            }
+        }).collect();
 
         if is_word {
             loop {
@@ -608,17 +631,10 @@ impl BPETokenizer {
 
         vocab.entry(eow_token.clone()).or_insert_with(|| { let id = next_id; next_id += 1; id });
 
-        let indent_tokens = [
-            "\n    ",     // 4 spaces (Python standard)
-            "\n        ", // 8 spaces (double indent)
-            "\n\t",       // tab indent
-            "\n\t\t",     // double tab
-            "\n  ",       // 2 spaces (JS/Rust sometimes)
-            "    ",       // 4 spaces standalone (for mid-line)
-        ];
-        for token in &indent_tokens {
-            vocab.entry(token.to_string()).or_insert_with(|| {
-                let id = next_id; 
+        for byte in 0u8..=255 {
+            let key = format!("<0x{:02X}>", byte);
+            vocab.entry(key).or_insert_with(|| {
+                let id = next_id;
                 next_id += 1;
                 id
             });
@@ -886,10 +902,9 @@ impl BPETokenizer {
             .replace(&self.end_of_word_token, "")
             .replace('⁄', "")
             .replace('\u{2044}', "")
-            .trim()
+            .trim_start()
             .to_string()
     }
-
 
     pub fn decode_batch(&self, batch_ids: &[Vec<u32>]) -> Vec<String> {
         batch_ids.par_iter()
@@ -917,10 +932,19 @@ impl BPETokenizer {
                 let mut local_chars: HashSet<String> = HashSet::new();
 
                 for word in PRE_TOKENIZER_RE.find_iter(doc.as_str()).map(|m| m.as_str()) {
-                    let is_word = word.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
-                    
+                    let first = word.chars().next().unwrap_or(' ');
+                    let is_word = if first == ' ' || first == '\t' {
+                        word.chars().nth(1).map(|c| c.is_alphanumeric()).unwrap_or(false)
+                    } else {
+                        first.is_alphanumeric()
+                    };
+
                     let word_normalized = if is_word {
-                        normalizer.normalize(word)
+                    let leading = if word.starts_with(' ') { " " } 
+                                else if word.starts_with('\t') { "\t" }
+                                else { "" };
+                        let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
+                        format!("{}{}", leading, normalizer.normalize(word_part))
                     } else {
                         word.to_string()
                     };
@@ -932,9 +956,17 @@ impl BPETokenizer {
                     
                     for ch in &chars { local_chars.insert(ch.clone()); }
                     
-                    let ids: Vec<u32> = chars.iter()
-                        .map(|s| *self.vocab.get(s).unwrap_or(&self.unk_ids()))
-                        .collect();
+                    let ids: Vec<u32> = chars.iter().flat_map(|s| {
+                        if let Some(&id) = self.vocab.get(s) {
+                            vec![id]
+                        } else {
+                            s.as_bytes().iter().map(|byte| {
+                                let key = format!("<0x{:02X}>", byte);
+                                self.vocab.get(&key).copied().unwrap_or(self.unk_ids())
+                            }).collect()
+                        }
+                    }).collect();
+
                     *local_segs.entry(ids).or_insert(0) += 1;
                 }
                 (local_segs, local_chars)
@@ -1009,12 +1041,12 @@ impl BPETokenizer {
 
             if config.show_progress {
                 println!(
-                    "Merge {}/{}: \"{}\" + \"{}\" (freq {}) → \"{}\" (vocab {})",
+                    "Merge {}/{}: {:?} + {:?} (freq {}) → {:?} (vocab {})",
                     merges_done, n_merges, t1, t2, max_freq, new_token, self.vocab.len()
                 );
             }
 
-            // --- Incremental pair_freq update ---
+            // --- Incremental pair_freq update ---c
             // For every segment containing best_pair:
             //   1. Subtract old pair counts for that segment
             //   2. Apply merge to get new segment
@@ -1127,10 +1159,19 @@ impl BPETokenizer {
                 let mut local_chars: HashSet<String> = HashSet::new();
 
                 for word in PRE_TOKENIZER_RE.find_iter(doc.as_str()).map(|m| m.as_str()) {
-                    let is_word = word.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
+                    let first = word.chars().next().unwrap_or(' ');
+                    let is_word = if first == ' ' || first == '\t' {
+                        word.chars().nth(1).map(|c| c.is_alphanumeric()).unwrap_or(false)
+                    } else {
+                        first.is_alphanumeric()
+                    };
 
                     let word_normalized = if is_word {
-                        normalizer.normalize(word)
+                    let leading = if word.starts_with(' ') { " " } 
+                                else if word.starts_with('\t') { "\t" }
+                                else { "" };
+                        let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
+                        format!("{}{}", leading, normalizer.normalize(word_part))
                     } else {
                         word.to_string()
                     };
@@ -1141,10 +1182,18 @@ impl BPETokenizer {
                     }
 
                     for ch in &chars { local_chars.insert(ch.clone()); }
-
-                    let ids: Vec<u32> = chars.iter()
-                        .map(|s| *self.vocab.get(s).unwrap_or(&self.unk_ids()))
-                        .collect();
+                    // in train() and process_chunk_incremental()
+                    let ids: Vec<u32> = chars.iter().flat_map(|s| {
+                        if let Some(&id) = self.vocab.get(s) {
+                            vec![id]
+                        } else {
+                            s.as_bytes().iter().map(|byte| {
+                                let key = format!("<0x{:02X}>", byte);
+                                self.vocab.get(&key).copied().unwrap_or(self.unk_ids())
+                            }).collect()
+                        }
+                    }).collect();
+                   
                     *local_segs.entry(ids).or_insert(0) += 1;
                 }
                 (local_segs, local_chars)
@@ -1191,7 +1240,7 @@ impl BPETokenizer {
             });
 
         let mut merges_this_round = 0;
-        while self.vocab.len() < config.vocab_size && merges_this_round < 1000 {
+        while self.vocab.len() < config.vocab_size { // Find best pair
             let Some((best_pair, max_freq)) = state.pair_freq.iter()
             .max_by_key(|(_, f)| *f)
             .map(|(&pair, &freq)| (pair, freq))  

@@ -522,6 +522,16 @@ impl PyBPETokenizer {
         .map_err(PyErr::from)
     }
 
+    fn get_token_from_id(&self, id: u32) -> PyResult<String> {
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(tokenizer.reverse_vocab
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| "<UNK>".to_string()))
+    }
+
+
     // =========== DECODE ===========
     fn decode(&self, token_ids: Vec<u32>) -> PyResult<String> {
         let tokenizer = self.tokenizer.lock()
