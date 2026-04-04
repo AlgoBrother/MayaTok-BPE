@@ -123,7 +123,7 @@ Apache-2.0
 
 ## Future Targets
 
-- [ ] PyPI package distribution
+- [✓] PyPI package distribution
       
 - [✓] the `examples` folder has lot of python implementation. Will experiment to integrate this in rust side of code and make python side of code more smaller and easier for users.
       
