@@ -1,6 +1,5 @@
 /target
 copy.rs
-/examples
+/examples/test.py
 /venv
 main.rs
-dataset_training
