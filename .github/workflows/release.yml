@@ -73,9 +73,11 @@ jobs:
           pattern: wheels-*
           merge-multiple: true
           path: dist
-      - uses: PyO3/maturin-action@v1
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Upload to PyPI
+        run: maturin upload --non-interactive dist/*
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        with:
-          command: upload
-          args: --non-interactive --skip-existing dist/*
