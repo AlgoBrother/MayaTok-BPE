@@ -2,7 +2,6 @@
 
 use core::fmt;
 use std::{collections::HashSet, hash::Hash, cmp};
-
 use hashbrown::HashMap;
 use ahash::AHasher;
 use std::hash::BuildHasherDefault;
@@ -21,15 +20,10 @@ use regex::Regex;
 use lazy_static::lazy_static;
 
 // =========== Regex for Pre-tokenization ============
-// lazy_static! {
-//     static ref PRE_TOKENIZER_RE: Regex =
-//         Regex::new(r"\p{L}+|\p{N}+|[^\s\p{L}\p{N}]+|\n[ \t]*|[ \t]+").unwrap();
-// }
-
 lazy_static! {
     static ref PRE_TOKENIZER_RE: Regex =
         Regex::new(
-            r"(?i:'s|'t|'re|'ve|'m|'ll|'d)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s*\n[ \t]*|\s+"
+            r"(?i:'s|'t|'re|'ve|'m|'ll|'d)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\n[ \t]*| +"
         ).unwrap();
 }
 
@@ -370,6 +364,10 @@ impl IncrementalTrainingState {
         self.cleanup_long_segments(length_threshold);
         self.pair_freq.clear();
     }
+}
+
+fn is_whitespace_only(s: &str) -> bool {
+    s.chars().all(|c| c == ' ' || c == '\n' || c == '\t' || c == '\r')
 }
 
 // ========== Encoding BLOCK ============
@@ -1026,6 +1024,11 @@ impl BPETokenizer {
             let t2 = self.get_token_from_id(best_pair.1).clone();
             let new_token = format!("{}{}", t1, t2);
 
+            if is_whitespace_only(&new_token) && new_token.len() > 4 {
+                pair_freq.remove(&best_pair);
+                continue;
+            }
+
             if self.vocab.contains_key(&new_token) {
                 // Token already exists — remove this pair so we don't loop forever
                 pair_freq.remove(&best_pair);
@@ -1251,6 +1254,11 @@ impl BPETokenizer {
             let t1 = self.get_token_from_id(best_pair.0).clone();
             let t2 = self.get_token_from_id(best_pair.1).clone();
             let new_token = format!("{}{}", t1, t2);
+            // Skip whitespace-only merges beyond 4 chars
+            if is_whitespace_only(&new_token) && new_token.len() > 4 {
+                state.pair_freq.remove(&best_pair);
+                continue;
+            }
 
             if self.vocab.contains_key(&new_token) {
                 state.pair_freq.remove(&best_pair);
