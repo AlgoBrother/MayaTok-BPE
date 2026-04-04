@@ -1,7 +1,7 @@
 # MayaTok
 MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind. I made this project just because I wanted to study how Byte Pair Encoding Works. 
 
-> Version: **V1** (under development, more optimizations & improved token compression coming soon!)
+> Version: **V2**
 
 ## ⚡️ Features (More optimizations in Progress)
  
@@ -44,13 +44,13 @@ Download the trained vocab and merges:
 #### Using Curl
 
 ```bash
-curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json
+curl -O https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/mayatok_vocab_v2.json
 ```
 
 #### Using Invoke-WebRequest 
 
 ```bash
-Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/bpe_tokenizer_py.json -OutFile bpe_tokenizer_py.json
+Invoke-WebRequest -Uri https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/mayatok_vocab_v2.json
 ```
 
 ### Create your own Vocab 
@@ -92,7 +92,7 @@ Hello, world!
 
 | Tokenizer   | Tokens/sec | Avg Compression Ratio |
 | ----------- | ---------- | --------------------- |
-| **MayaTok-BPE** | **2,436,136**     | **4.28**                  |
+| **MayaTok-BPE** | **7,306,114**     | **2.75**                  |
 | tiktoken-cl100k   | 262,016    | 3.36              |
 | tiktoken-p50k   | 288,657    | 3.27             |
 | GPT2        | 1,227,199    | 2.94             |
@@ -103,7 +103,7 @@ Hello, world!
 
 | Tokenizer   | Tokens/sec | Compression Ratio |
 | ----------- | ---------- | ----------------- |
-| **MayaTok** | **1,038,501**      | **4.28**              |
+| **MayaTok** | **1,181,709**      | **2.75**              |
 | tiktoken-cl100k   | 1,184,446    | 3.36              |
 | tiktoken-p50k   | 1,591,801    | 3.27             |
 | GPT2        | 252,369    | 2.94             |
@@ -112,12 +112,21 @@ Hello, world!
 
 **Note: Performance optimizations are ongoing** (MAY CHANGE SINCE I AM APPLYING NEW BENCHMARK METHOD.)
 
-## 💽 Corpus Used for V1
+## 💽 Corpus Used for V2
 
-[Cosmopedia](https://huggingface.co/datasets/HuggingFaceTB/cosmopedia)
+cosmopedia-v2
 
-[OpenWebText](https://huggingface.co/datasets/Skylion007/openwebtext)
+c4-english
 
+wikipedia
+
+openwebtext
+
+github-top-code
+
+arxiv-papers
+
+> Check dataset_training/train.py for more details
 
 ## 🙌 Contributing
 
@@ -141,7 +150,7 @@ Apache-2.0
       
 - [ ] Bincode support for faster model loading
       
-- [ ] New Line Format support (in progress)
+- [✓] New Line Format support
       
 
 
