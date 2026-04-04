@@ -1312,18 +1312,29 @@ impl BPETokenizer {
 
     // =========== Serialization ============
 
+    // Saves the tokenizer to a file. If the path ends with .bin, uses bincode for compact binary serialization; otherwise uses JSON for human-readable format.
     pub fn save(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let file = File::create(path)?;
-        serde_json::to_writer_pretty(BufWriter::new(file), self)?;
+        let writer = BufWriter::new(file);
+        if path.ends_with(".bin") {
+            bincode::serialize_into(writer, self)?;
+        } else {
+            serde_json::to_writer_pretty(writer, self)?;
+        }
         Ok(())
     }
 
-    // Load tokenizer and rebuild merge lookup tables.
+    // Loads a tokenizer from a file, rebuilding the merge lookups and initializing the cache.
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let file = File::open(path)?;
-        let mut tokenizer: Self = serde_json::from_reader(BufReader::new(file))?;
+        let reader = BufReader::new(file);
+        let mut tokenizer: Self = if path.ends_with(".bin") {
+            bincode::deserialize_from(reader)?
+        } else {
+            serde_json::from_reader(reader)?
+        };
         tokenizer.cache = LruCache::new(150_000);
-        tokenizer.build_merge_lookups(); 
+        tokenizer.build_merge_lookups();
         Ok(tokenizer)
     }
 
