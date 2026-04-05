@@ -20,6 +20,12 @@ MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with perf
 - [Rust](https://www.rust-lang.org/tools/install) (required)
 - Python 3.7+ (for Python bindings)
 
+### PIP Installation
+
+```bash
+pip install mayatok
+```
+
 ### From Source
 ```bash
 git clone https://github.com/AlgoBrother/MayaTok-BPE.git
@@ -35,18 +41,6 @@ pip install target/wheels/*.whl
 ```
 
 ### Quick Start 
-
-### Create your own Vocab 
-
-> If you wish to create your own vocab file with a different corpus file.
-> 
-> Make sure you have forked/cloned the rust tokenizer code and have built the /target/wheels as mentioned in previous steps
-
-[stream method](examples/train_your_own_vocab.py) - If you have a large dataset and want to stream your data in chunks to not overload your machine. Use this.
-
-[non-stream method](examples/non_stream_train_your_own_vocab.py) - If you have a dataset which your RAM can handle after being loaded, use this for much faster training.
-
-
 
 ## Using with Python
 
@@ -68,6 +62,17 @@ Output of the sample code above
 [11608, 77, 3641, 62]
 Hello, world!
 ```
+## If you want to create your own Vocab 
+
+If you are using HuggingFace Datasets, refer to [this](dataset_training\train.py) for creating your own vocab.
+
+### If your dataset is in your local machine
+ 
+> Make sure you have forked/cloned the rust tokenizer code and have built the /target/wheels as mentioned in previous steps
+
+[stream method](examples/train_your_own_vocab.py) - If you have a large dataset and want to stream your data in chunks to not overload your machine. Use this.
+
+[non-stream method](examples/non_stream_train_your_own_vocab.py) - If you have a dataset which your RAM can handle after being loaded, use this for much faster training.
 
 ## 📈 Benchmarks
 
