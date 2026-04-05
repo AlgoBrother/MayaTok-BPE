@@ -1,5 +1,5 @@
 /target
 copy.rs
-/examples/test.py
+/examples
 /venv
 main.rs

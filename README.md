@@ -121,7 +121,7 @@ Apache-2.0
 
 
 
-## Future Targets
+## Future Targets [COMPLETED]
 
 - [✓] PyPI package distribution
       
