@@ -1,6 +1,6 @@
 [package]
  name = "mayatok"
- version = "0.2.0"
+ version = "0.2.2"
  authors = ["Ashwin Rajhans <ashwinrajhansofficial@gmail.com>"]
  description = "A BPE Tokenizer developed in Rust. "
  edition = "2024"
