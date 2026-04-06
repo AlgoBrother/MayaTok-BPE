@@ -25,6 +25,8 @@ lazy_static! {
         Regex::new(
             r"(?i:'s|'t|'re|'ve|'m|'ll|'d)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\n[ \t]*| +"
         ).unwrap();
+
+    static ref NORMALIZER: TextNormalizer = TextNormalizer::new().to_strip_accents();
 }
 
 // =========== Error handling ============
@@ -396,7 +398,6 @@ fn encode_text_inner(
         return Ok((**cached).clone());
     }
 
-    let normalizer = TextNormalizer::new().to_strip_accents();
     let mut ids: Vec<u32> = Vec::new();
 
     // iterate raw text, normalize only word segments
@@ -413,7 +414,7 @@ fn encode_text_inner(
                     else if word.starts_with('\t') { "\t" }
                     else { "" };
             let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
-            format!("{}{}", leading, normalizer.normalize(word_part))
+            format!("{}{}", leading, NORMALIZER.normalize(word_part))
         } else {
             word.to_string()
         };
@@ -921,8 +922,6 @@ impl BPETokenizer {
             .build_global()
             .ok(); // ignore if already initialized
 
-        let normalizer = TextNormalizer::new().to_strip_accents();
-
         // --- Initial segmentation (parallel) ---
         let init_results: Vec<(FastHashMap<Vec<u32>, usize>, HashSet<String>)> =
             corpus.par_iter().map(|doc| {
@@ -942,7 +941,7 @@ impl BPETokenizer {
                                 else if word.starts_with('\t') { "\t" }
                                 else { "" };
                         let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
-                        format!("{}{}", leading, normalizer.normalize(word_part))
+                        format!("{}{}", leading, NORMALIZER.normalize(word_part))
                     } else {
                         word.to_string()
                     };
@@ -1111,7 +1110,8 @@ impl BPETokenizer {
         state.current_vocab_size = self.vocab.len();
 
         let mut chunk_buffer = Vec::with_capacity(config.chunk_size);
-        let normalizer = TextNormalizer::new().to_strip_accents();
+
+
 
         for (doc_idx, document) in corpus.enumerate() {
             chunk_buffer.push(document);
@@ -1120,7 +1120,7 @@ impl BPETokenizer {
             }
 
             if chunk_buffer.len() >= config.chunk_size {
-                self.process_chunk_incremental(&chunk_buffer, state, &normalizer, &config);
+                self.process_chunk_incremental(&chunk_buffer, state, &config);
                 state.chunks_processed += 1;
                 state.total_documents += chunk_buffer.len();
 
@@ -1137,7 +1137,7 @@ impl BPETokenizer {
         }
 
         if self.vocab.len() < config.vocab_size && !chunk_buffer.is_empty() {
-            self.process_chunk_incremental(&chunk_buffer, state, &normalizer, &config);
+            self.process_chunk_incremental(&chunk_buffer, state, &config);
             state.chunks_processed += 1;
             state.total_documents += chunk_buffer.len();
         }
@@ -1152,7 +1152,6 @@ impl BPETokenizer {
         &mut self,
         chunk: &[String],
         state: &mut IncrementalTrainingState,
-        normalizer: &TextNormalizer,
         config: &IncrementalTrainingConfig,
     ) {
         let chunk_results: Vec<(FastHashMap<Vec<u32>, usize>, HashSet<String>)> = chunk
@@ -1174,7 +1173,7 @@ impl BPETokenizer {
                                 else if word.starts_with('\t') { "\t" }
                                 else { "" };
                         let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
-                        format!("{}{}", leading, normalizer.normalize(word_part))
+                        format!("{}{}", leading, NORMALIZER.normalize(word_part))
                     } else {
                         word.to_string()
                     };
