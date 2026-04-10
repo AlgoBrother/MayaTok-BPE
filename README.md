@@ -59,7 +59,7 @@ print(decoded_text)
 
 Output of the sample code above
 ```
-[11608, 77, 3641, 62]
+[11617, 77, 3646, 62]
 Hello, world!
 ```
 ## If you want to create your own Vocab 
