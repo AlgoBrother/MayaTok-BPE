@@ -1303,12 +1303,20 @@ impl BPETokenizer {
         println!("Completed {} merges this round", merges_this_round);
     }
 
-    pub fn initialize_base_vocabulary(&mut self, _config: &IncrementalTrainingConfig) {
-        for (token, &id) in &self.vocab {
-            self.reverse_vocab.entry(id).or_insert_with(|| token.clone());
+    pub fn initialize_base_vocabulary(&mut self, config: &IncrementalTrainingConfig) {
+        // Register config special tokens into special_tokens_ids
+        // so they get single-token treatment during encode
+        let mut next_id = self.vocab.len() as u32;
+        for token in &config.special_tokens {
+            let id = self.vocab.entry(token.clone()).or_insert_with(|| {
+                let id = next_id;
+                next_id += 1;
+                id
+            });
+            self.special_tokens_ids.insert(token.clone(), *id);
+            self.reverse_vocab.entry(*id).or_insert_with(|| token.clone());
         }
     }
-
     // =========== Serialization ============
 
     // Saves the tokenizer to a file. If the path ends with .bin, uses bincode for compact binary serialization; otherwise uses JSON for human-readable format.
