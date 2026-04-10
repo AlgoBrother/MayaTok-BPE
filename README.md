@@ -49,7 +49,7 @@ To use MayaTok with Python:
 ```python
 import mayatok as bpe
 
-my_tokenizer =  bpe.get_tokenizer("v2-100k") # or 'mayatok-base' if you wish to use v1 tokenizer
+my_tokenizer =  bpe.get_tokenizer("vb100k") # or 'mayatok-base' if you wish to use v1 tokenizer
 test = "Hello, world!"
 tokens = my_tokenizer.encode(test)
 print(tokens)
