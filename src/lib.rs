@@ -50,10 +50,9 @@ lazy_static::lazy_static! {
         let mut m = std::collections::HashMap::new();
         m.insert("mayatok-base", 
             "https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/mayatok_vocab.json");
-        m.insert("v2-100k", 
-            "https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/mayatok_vocab_v2.json");
+        m.insert("vb100k", 
+            "https://huggingface.co/datasets/AlgoBrother/mayatok-assets/resolve/main/mayatok_vocab_v2_100k.json");
         m
-
     };
 }
 
