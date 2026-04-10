@@ -1,7 +1,7 @@
 # MayaTok
 MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with performance and extensibility in mind. I made this project just because I wanted to study how Byte Pair Encoding Works. 
 
-> Version: **V2**
+> Version: **2.1.4**
 
 ## ⚡️ Features (More optimizations in Progress)
  
@@ -80,22 +80,22 @@ If you are using HuggingFace Datasets, refer to [this](dataset_training\train.py
 
 | Tokenizer   | Tokens/sec | Avg Compression Ratio |
 | ----------- | ---------- | --------------------- |
-| **MayaTok-BPE** | **7,306,114**     | **2.75**                  |
+| **MayaTok-BPE** | **6,757,698**     | **2.75**                  |
 | tiktoken-cl100k   | 262,016    | 3.36              |
 | tiktoken-p50k   | 288,657    | 3.27             |
-| GPT2        | 1,227,199    | 2.94             |
-| Falcon-7B   | 946,393   | 3.26              |
+| GPT2        | 1,940,899    | 2.94             |
+| Falcon-7B   | 1,554,393   | 3.26              |
 
 
 ### Normal Encoding
 
 | Tokenizer   | Tokens/sec | Compression Ratio |
 | ----------- | ---------- | ----------------- |
-| **MayaTok** | **1,181,709**      | **2.75**              |
-| tiktoken-cl100k   | 1,184,446    | 3.36              |
-| tiktoken-p50k   | 1,591,801    | 3.27             |
-| GPT2        | 252,369    | 2.94             |
-| Falcon-7B   | 172,114   | 3.26              |
+| **MayaTok** | **1,249,426**      | **2.75**              |
+| tiktoken-cl100k   | 2,318,683   | 3.36              |
+| tiktoken-p50k   | 2,670,190    | 3.27             |
+| GPT2        | 519,369    | 2.94             |
+| Falcon-7B   | 346,040   | 3.26              |
 
 
 **Note: Performance optimizations are ongoing** (MAY CHANGE SINCE I AM APPLYING NEW BENCHMARK METHOD.)
