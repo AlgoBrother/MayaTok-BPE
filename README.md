@@ -3,7 +3,7 @@ MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with perf
 
 > Version: **2.1.4**
 
-## ⚡️ Features (More optimizations in Progress)
+## ⚡️ Features
  
 - Multithreaded training for fast vocab generation 
 
@@ -13,11 +13,10 @@ MayaTok is a Byte-Pair Encoding (BPE) tokenizer written in Rust. Built with perf
 
 - Focus on raw speed — built for performance benchmarking
 
-
 ## 🚀 Installation
 
 ### Prerequisites
-- [Rust](https://www.rust-lang.org/tools/install) (required)
+- [Rust](https://www.rust-lang.org/tools/install) (required for 'from source' approach)
 - Python 3.9+ (for Python bindings)
 
 ### PIP Installation
@@ -126,20 +125,11 @@ Apache-2.0
 
 
 
-## Future Targets [COMPLETED]
+## Future Targets [3.0]
 
-- [✓] PyPI package distribution
-      
-- [✓] the `examples` folder has lot of python implementation. Will experiment to integrate this in rust side of code and make python side of code more smaller and easier for users.
-      
-- [✓] Enhanced CPU utilization and faster merging algorithms
-      
-- [✓] Improved merge quality and compression ratios
-      
-- [✓] Bincode support for faster model loading
-      
-- [✓] New Line Format support
-      
+- [ ] Training a multilingual vocab 
+- [ ] Better Compression
+- Still Thinking
 
 
   
