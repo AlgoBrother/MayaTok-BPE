@@ -37,7 +37,7 @@ _ = tiktoken_p50k.encode_batch(["warmup"] * 5)
 
 # === Load corpus =
 with open(r"examples/test_corpus.txt", "r", encoding="utf-8") as f:
-    texts = f.readlines()
+    texts = [line.strip() for line in f if line.strip()]
 
 # ============== Benchmark helpers ===================
 def bench_batch(label, fn, pad_id=None):
