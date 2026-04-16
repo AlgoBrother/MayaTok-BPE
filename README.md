@@ -79,22 +79,22 @@ If you are using HuggingFace Datasets, refer to [this](dataset_training\train.py
 
 | Tokenizer   | Tokens/sec | Avg Compression Ratio |
 | ----------- | ---------- | --------------------- |
-| **MayaTok-BPE** | **6,757,698**     | **2.75**                  |
-| tiktoken-cl100k   | 262,016    | 3.36              |
-| tiktoken-p50k   | 288,657    | 3.27             |
-| GPT2        | 1,940,899    | 2.94             |
-| Falcon-7B   | 1,554,393   | 3.26              |
+| **MayaTok-BPE** | **2,277,698**     | **3.92**                  |
+| tiktoken-cl100k   | 284,016    | 4.11              |
+| tiktoken-p50k   | 268,657    | 4.08            |
+| GPT2        | 1,107,899    | 4.04             |
+| Falcon-7B   | 938,424   | 4.07           |
 
 
 ### Normal Encoding
 
 | Tokenizer   | Tokens/sec | Compression Ratio |
 | ----------- | ---------- | ----------------- |
-| **MayaTok** | **1,249,426**      | **2.75**              |
-| tiktoken-cl100k   | 2,318,683   | 3.36              |
-| tiktoken-p50k   | 2,670,190    | 3.27             |
-| GPT2        | 519,369    | 2.94             |
-| Falcon-7B   | 346,040   | 3.26              |
+| **MayaTok** | **302,276**      | **3.92**              |
+| tiktoken-cl100k   | 678,801   | 4.11             |
+| tiktoken-p50k   | 750,891    | 4.08             |
+| GPT2        | 215,831 | 4.04            |
+| Falcon-7B   | 177,707   | 4.07             |
 
 
 **Note: Performance optimizations are ongoing** (MAY CHANGE SINCE I AM APPLYING NEW BENCHMARK METHOD.)
