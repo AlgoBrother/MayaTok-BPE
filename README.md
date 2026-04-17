@@ -97,7 +97,7 @@ If you are using HuggingFace Datasets, refer to [this](dataset_training\train.py
 | Falcon-7B   | 177,707   | 4.07             |
 
 
-**Note: This benchmark is general average of multiple runs of `examples\benchmark.py` resulted in. You may find different results when you test it in your own systems. 
+**Note: For [Tokens/sec], the benchmark is general average of multiple runs of `examples\benchmark.py` resulted in. You may find different results when you test it in your own systems. 
 Performance optimizations are ongoing** 
 
 ## 💽 Corpus Used for V2
