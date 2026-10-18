@@ -4,7 +4,6 @@ use pyo3::{prelude::*, types::PyIterator};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use std::path::PathBuf;
 
-
 mod text_normalizer;
 mod bpe_tokenizer_lib;
 pub use bpe_tokenizer_lib::{
@@ -29,7 +28,6 @@ fn load_or_download(name: &str, url: &str) -> Result<PathBuf, String> {
         return Ok(cache_path);
     }
 
-    // Download with no size limit
     let response = ureq::get(url)
         .call()
         .map_err(|e| format!("Download failed: {}", e))?;
@@ -56,6 +54,18 @@ lazy_static::lazy_static! {
     };
 }
 
+/// Retrieves a pre-trained BPE tokenizer by name, downloading and caching vocabulary files if needed.
+///
+/// Args:
+///     name (str): Name of the pre-trained tokenizer preset (e.g., 'mayatok-base', 'vb100k').
+///     strip_accents (bool, optional): Whether to strip unicode accents during normalization. Defaults to False.
+///
+/// Returns:
+///     PyBPETokenizer: An initialized BPE tokenizer instance.
+///
+/// Raises:
+///     ValueError: If the requested tokenizer name is not found in the registry.
+///     RuntimeError: If downloading or loading the vocabulary file fails.
 #[pyfunction]
 #[pyo3(signature = (name, strip_accents=false))]
 fn get_tokenizer(py: Python, name: String, strip_accents: bool) -> PyResult<PyBPETokenizer> {
@@ -80,6 +90,10 @@ fn get_tokenizer(py: Python, name: String, strip_accents: bool) -> PyResult<PyBP
     Ok(tok)
 }
 
+/// Lists all available pre-trained tokenizer preset names in the registry.
+///
+/// Returns:
+///     list[str]: A list of preset tokenizer names that can be loaded with `get_tokenizer`.
 #[pyfunction]
 fn list_tokenizers() -> Vec<String> {
     REGISTRY.keys().map(|s| s.to_string()).collect()
@@ -94,6 +108,12 @@ impl From<TokenizerError> for PyErr {
 }
 
 // =========== PyEncoding ===========
+/// Represents the result of an encoding operation, containing token IDs and model input masks.
+///
+/// Attributes:
+///     input_ids (list[int]): Sequence of numerical token IDs.
+///     attention_mask (list[int]): Mask indicating non-padding tokens (1 for real tokens, 0 for padding).
+///     token_type_ids (list[int]): Sequence segment IDs for pair encoding (0 for text A, 1 for text B).
 #[pyclass(get_all)]
 #[derive(Debug, Clone)]
 pub struct PyEncoding {
@@ -111,6 +131,10 @@ impl PyEncoding {
         )
     }
 
+    /// Converts the PyEncoding object into a standard Python dictionary.
+    ///
+    /// Returns:
+    ///     dict: A dictionary containing 'input_ids', 'attention_mask', and 'token_type_ids'.
     fn to_dict(&self, py: Python) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new(py);
         dict.set_item("input_ids", self.input_ids.clone())?;
@@ -131,6 +155,14 @@ impl From<Encoding> for PyEncoding {
 }
 
 // =========== Config classes ===========
+/// Configuration options for standard BPE tokenizer training.
+///
+/// Attributes:
+///     vocab_size (int): Target vocabulary size.
+///     min_frequency (int): Minimum occurrence frequency for pair merging.
+///     n_threads (int | None): Number of worker threads for parallel training.
+///     special_tokens (list[str]): List of special tokens to retain in vocabulary.
+///     show_progress (bool): Whether to display training progress bars.
 #[pyclass(get_all, set_all)]
 #[derive(Debug, Clone, Default)]
 pub struct PyTrainConfig {
@@ -186,6 +218,17 @@ impl From<PyTrainConfig> for TrainingConfig {
     }
 }
 
+/// Configuration settings for out-of-core or stream-based incremental BPE training.
+///
+/// Attributes:
+///     vocab_size (int): Maximum vocabulary size to construct.
+///     min_frequency (int): Minimum frequency required to merge pairs.
+///     chunk_size (int): Number of documents per batch chunk.
+///     merge_frequency (int): Iteration frequency for pair merge updates.
+///     save_frequency (int): Chunk interval between automatic checkpoint saves.
+///     checkpoint_path (str | None): Directory path to save training checkpoints.
+///     show_progress (bool): Whether to display progress logs during incremental updates.
+///     special_tokens (list[str]): List of reserved special tokens.
 #[pyclass(get_all, set_all)]
 #[derive(Debug, Clone)]
 pub struct PyIncrementalTrainingConfig {
@@ -244,6 +287,7 @@ impl From<PyIncrementalTrainingConfig> for IncrementalTrainingConfig {
     }
 }
 
+/// Thread-safe state tracking container for incremental or streaming BPE training.
 #[pyclass(name = "IncrementalTrainingState")]
 #[derive(Debug, Clone)]
 pub struct PyIncrementalTrainingState {
@@ -259,26 +303,31 @@ impl PyIncrementalTrainingState {
         }
     }
 
+    /// Total number of corpus chunks processed so far.
     #[getter]
     fn chunks_processed(&self) -> usize {
         self.inner.lock().unwrap().chunks_processed
     }
 
+    /// Total number of individual documents processed so far.
     #[getter]
     fn total_documents(&self) -> usize {
         self.inner.lock().unwrap().total_documents
     }
 
+    /// Current vocabulary size achieved during incremental training.
     #[getter]
     fn current_vocab_size(&self) -> usize {
         self.inner.lock().unwrap().current_vocab_size
     }
 
+    /// Index of the last merge iteration.
     #[getter]
     fn last_merge_iteration(&self) -> usize {
         self.inner.lock().unwrap().last_merge_iteration
     }
 
+    /// Total count of unique word segments stored in the state.
     #[getter]
     fn word_segments_count(&self) -> usize {
         self.inner.lock().unwrap().word_segments.len()
@@ -293,6 +342,7 @@ impl PyIncrementalTrainingState {
         )
     }
 
+    /// Reconstructs pair frequencies across tracked word segments after state updates or loading.
     fn reconstruct_pair_freq(&mut self) -> PyResult<()> {
         let mut state = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -309,6 +359,14 @@ impl From<IncrementalTrainingState> for PyIncrementalTrainingState {
     }
 }
 
+/// Execution parameters for batch encoding operations.
+///
+/// Attributes:
+///     max_length (int | None): Optional padding/truncation token limit.
+///     parallel_threshold (int): Minimum document batch count to trigger multi-threaded Rayon execution.
+///     max_threads (int | None): Maximum thread pool size allocated for batch encoding.
+///     use_thread_local_cache (bool): Enables per-thread local LRU caching for performance optimization.
+///     thread_cache_size (usize): Capacity of thread-local LRU caches.
 #[pyclass(get_all, set_all)]
 #[derive(Debug, Clone, Default)]
 pub struct PyBatchEncodingConfig {
@@ -353,6 +411,7 @@ impl From<PyBatchEncodingConfig> for BatchEncodingConfig {
 }
 
 // =========== PyCorpusIterator ===========
+/// Internal iterator wrapper over string corpora for incremental training.
 #[pyclass]
 struct PyCorpusIterator {
     inner: Vec<String>,
@@ -378,6 +437,7 @@ impl PyCorpusIterator {
 }
 
 // =========== PyBPETokenizer ===========
+/// High-performance Byte-Pair Encoding (BPE) tokenizer implemented in Rust.
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct PyBPETokenizer {
@@ -391,6 +451,11 @@ impl PyBPETokenizer {
         Self { tokenizer: Arc::new(Mutex::new(BPETokenizer::new())) }
     }
 
+    /// Trains the tokenizer synchronously on an in-memory list of strings.
+    ///
+    /// Args:
+    ///     corpus (list[str]): List of text documents used to learn BPE merges.
+    ///     config (PyTrainConfig, optional): Training parameters and vocabulary limits.
     fn train(&mut self, corpus: Vec<String>, config: Option<PyTrainConfig>) -> PyResult<()> {
         let rust_config = config.map_or_else(TrainingConfig::default, |c| c.into());
         let mut tokenizer = self.tokenizer.lock()
@@ -399,6 +464,12 @@ impl PyBPETokenizer {
         Ok(())
     }
 
+    /// Performs incremental batch training while releasing the Python GIL.
+    ///
+    /// Args:
+    ///     corpus (list[str]): Document chunk to process in this training pass.
+    ///     config (PyIncrementalTrainingConfig): Configuration settings for stream training.
+    ///     state (IncrementalTrainingState): Shared state object tracking cumulative metrics across calls.
     fn train_incremental(
         &mut self, py: Python,
         corpus: Vec<String>,
@@ -417,6 +488,12 @@ impl PyBPETokenizer {
         Ok(())
     }
 
+    /// Streams documents dynamically from a Python iterator through a bounded crossbeam channel.
+    ///
+    /// Args:
+    ///     corpus_iter (iterable): Any Python iterable yielding text strings.
+    ///     config (PyIncrementalTrainingConfig): Settings governing incremental execution.
+    ///     state (IncrementalTrainingState): Mutable state object tracking vocabulary updates.
     #[pyo3(name = "train_stream")]
     fn train_incremental_iter(
         &mut self,
@@ -449,6 +526,9 @@ impl PyBPETokenizer {
 
     // ========== Tokenization Accent Handling ===========
     /// Enable or disable accent stripping dynamically at runtime.
+    ///
+    /// Args:
+    ///     enabled (bool): Set to True to strip diacritics and accents during normalization.
     #[pyo3(signature = (enabled))]
     fn set_strip_accents(&mut self, enabled: bool) -> PyResult<()> {
         let mut tokenizer = self.tokenizer.lock()
@@ -458,6 +538,7 @@ impl PyBPETokenizer {
         Ok(())
     }
 
+    /// Indicates whether unicode accent stripping is enabled on this tokenizer instance.
     #[getter]
     fn strip_accents(&self) -> PyResult<bool> {
         let tokenizer = self.tokenizer.lock()
@@ -466,7 +547,13 @@ impl PyBPETokenizer {
     }
 
     // =========== ENCODE ===========
-    // encode → List[int], 
+    /// Fast single-string encoding into a list of token IDs.
+    ///
+    /// Args:
+    ///     text (str): String content to tokenize.
+    ///
+    /// Returns:
+    ///     list[int]: Sequence of numerical token IDs.
     #[pyo3(signature = (text))]
     fn encode(&mut self, text: String) -> PyResult<Vec<u32>> {
         let mut tokenizer = self.tokenizer.lock()
@@ -474,7 +561,14 @@ impl PyBPETokenizer {
         tokenizer.encode_fast(&text).map_err(PyErr::from)
     }
 
-    // encode_batch → List[List[int]],  
+    /// Parallel batch encoding of multiple texts into token ID sequences.
+    ///
+    /// Args:
+    ///     texts (list[str]): List of input strings.
+    ///     config (PyBatchEncodingConfig, optional): Execution configuration (threads, cache settings).
+    ///
+    /// Returns:
+    ///     list[list[int]]: Nested list containing token IDs for each input document.
     #[pyo3(signature = (texts, config=None))]
     fn encode_batch(
         &self,
@@ -488,7 +582,18 @@ impl PyBPETokenizer {
             .map_err(PyErr::from)
     }
 
-    // encode_plus → PyEncoding with masks, for fine-tuning/inference
+    /// Encodes text into a PyEncoding structure with attention masks and sequence padding/truncation.
+    ///
+    /// Args:
+    ///     text (str): Primary input string.
+    ///     text_b (str, optional): Secondary input string for text-pair processing.
+    ///     max_length (int, optional): Target maximum sequence length.
+    ///     padding (bool, optional): Pad output sequence up to max_length. Defaults to False.
+    ///     truncation (bool, optional): Truncate output sequence at max_length. Defaults to False.
+    ///     add_special_tokens (bool, optional): Prepends/appends standard special tokens. Defaults to False.
+    ///
+    /// Returns:
+    ///     PyEncoding: Structured encoding object with IDs, masks, and segment type tags.
     #[pyo3(signature = (
         text,
         text_b=None,
@@ -520,7 +625,19 @@ impl PyBPETokenizer {
         .map_err(PyErr::from)
     }
 
-    // encode_batch_plus → List[PyEncoding]
+    /// Batch encoding with full PyEncoding outputs, supporting padding, truncation, and sequence pairs.
+    ///
+    /// Args:
+    ///     texts (list[str]): Primary text list.
+    ///     texts_b (list[str], optional): Secondary text list for pair inputs.
+    ///     config (PyBatchEncodingConfig, optional): Threading and cache execution parameters.
+    ///     max_length (int, optional): Maximum allowed token limit per sequence.
+    ///     padding (bool, optional): Enable padding to max_length. Defaults to False.
+    ///     truncation (bool, optional): Enable truncation at max_length. Defaults to False.
+    ///     add_special_tokens (bool, optional): Prepend/append delimiter tokens. Defaults to False.
+    ///
+    /// Returns:
+    ///     list[PyEncoding]: List of PyEncoding instances.
     #[pyo3(signature = (
         texts,
         texts_b=None,
@@ -556,6 +673,13 @@ impl PyBPETokenizer {
         .map_err(PyErr::from)
     }
 
+    /// Looks up the string representation of a token ID, returning '<UNK>' if unmapped.
+    ///
+    /// Args:
+    ///     id (int): Numerical token ID.
+    ///
+    /// Returns:
+    ///     str: Token string corresponding to the ID.
     fn get_token_from_id(&self, id: u32) -> PyResult<String> {
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -565,8 +689,14 @@ impl PyBPETokenizer {
             .unwrap_or_else(|| "<UNK>".to_string()))
     }
 
-
     // =========== DECODE ===========
+    /// Decodes a list of token IDs back into a single reconstructed text string.
+    ///
+    /// Args:
+    ///     token_ids (list[int]): Sequence of token IDs to decode.
+    ///
+    /// Returns:
+    ///     str: Decoded text representation.
     fn decode(&self, token_ids: Vec<u32>) -> PyResult<String> {
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -574,6 +704,13 @@ impl PyBPETokenizer {
     }
 
     // =========== BATCH DECODE ===========
+    /// Decodes a batch of token ID sequences back into string documents.
+    ///
+    /// Args:
+    ///     batch_ids (list[list[int]]): List of token ID sequences.
+    ///
+    /// Returns:
+    ///     list[str]: Reconstructed text strings.
     fn decode_batch(&self, batch_ids: Vec<Vec<u32>>) -> PyResult<Vec<String>> {
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -581,6 +718,10 @@ impl PyBPETokenizer {
     }
 
     // =========== save / load ===========
+    /// Saves the current tokenizer state and vocabulary to a JSON file.
+    ///
+    /// Args:
+    ///     path (str): File path destination.
     fn save(&self, py: Python, path: String) -> PyResult<()> {
         py.allow_threads(|| {
             let tokenizer = self.tokenizer.lock()
@@ -589,6 +730,13 @@ impl PyBPETokenizer {
         })
     }
 
+    /// Loads a saved tokenizer instance from a JSON vocabulary file.
+    ///
+    /// Args:
+    ///     path (str): File path to load.
+    ///
+    /// Returns:
+    ///     PyBPETokenizer: Restored tokenizer object.
     #[staticmethod]
     fn load(py: Python, path: String) -> PyResult<PyBPETokenizer> {
         py.allow_threads(|| {
@@ -600,6 +748,12 @@ impl PyBPETokenizer {
         })
     }
 
+    /// Saves a training checkpoint including tokenizer state and training progress metrics.
+    ///
+    /// Args:
+    ///     path (str): File path to store checkpoint.
+    ///     state (IncrementalTrainingState): State object to serialize alongside vocabulary.
+    ///     format (str): Checkpoint file format specification.
     fn save_checkpoint(
         &self, py: Python,
         path: String,
@@ -618,6 +772,13 @@ impl PyBPETokenizer {
         })
     }
 
+    /// Restores a tokenizer and its IncrementalTrainingState from a checkpoint file.
+    ///
+    /// Args:
+    ///     path (str): Path to checkpoint file.
+    ///
+    /// Returns:
+    ///     tuple[PyBPETokenizer, IncrementalTrainingState]: Restored tokenizer and training state pair.
     #[staticmethod]
     fn load_checkpoint(
         py: Python,
@@ -636,31 +797,51 @@ impl PyBPETokenizer {
     }
 
     // =========== getters ===========
+    /// Retrieves summary metadata and structural statistics about the tokenizer.
+    ///
+    /// Returns:
+    ///     PyBPEStats: Object holding vocabulary metrics.
     fn get_stats(&self) -> PyResult<PyBPEStats> {
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.get_stats().into())
     }
 
+    /// Retrieves the vocabulary mapping dictionary.
+    ///
+    /// Returns:
+    ///     dict[str, int]: Map from token strings to numerical IDs.
     fn get_vocab(&self) -> PyResult<std::collections::HashMap<String, u32>> {
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.vocab.iter().map(|(k, &v)| (k.clone(), v)).collect())
     }
 
+    /// Returns the ID for a given token string if present in vocabulary.
+    ///
+    /// Args:
+    ///     token (str): Token string to query.
+    ///
+    /// Returns:
+    ///     int | None: Token ID or None if absent.
     fn token_to_id(&self, token: String) -> PyResult<Option<u32>> {
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.vocab.get(&token).copied())
     }
 
+    /// Returns the string representation for a given token ID if mapped.
+    ///
+    /// Args:
+    ///     id (int): Token ID to query.
+    ///
+    /// Returns:
+    ///     str | None: String token or None if absent.
     fn id_to_token(&self, id: u32) -> PyResult<Option<String>> {
         let tokenizer = self.tokenizer.lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(tokenizer.reverse_vocab.get(&id).cloned())
     }
-
-
 
     /// Adds a list of new special or literal tokens to the tokenizer's vocabulary.
     ///
@@ -681,7 +862,6 @@ impl PyBPETokenizer {
     /// Example:
     ///     >>> num_added = tokenizer.add_tokens(["<custom_tag>", "∇f"])
     ///     >>> print(f"Added {num_added} tokens")
-    // #[text_signature = "($self, tokens, /)"]
     pub fn add_tokens(&mut self, tokens: Vec<String>) -> PyResult<usize> {
         let mut tokenizer = self
             .tokenizer
@@ -690,7 +870,6 @@ impl PyBPETokenizer {
 
         let mut added = 0;
 
-        // Safely identify the next unique ID using the current max value
         let mut next_id = tokenizer
             .vocab
             .values()
@@ -700,11 +879,9 @@ impl PyBPETokenizer {
 
         for token in tokens {
             if !tokenizer.vocab.contains_key(&token) {
-                // 1. Forward and reverse vocabulary map update
                 tokenizer.vocab.insert(token.clone(), next_id);
                 tokenizer.reverse_vocab.insert(next_id, token.clone());
 
-                // 2. Explicit added_tokens registry so encoder matches as an atomic unit
                 tokenizer.added_tokens.insert(token, next_id);
 
                 next_id += 1;
@@ -712,7 +889,6 @@ impl PyBPETokenizer {
             }
         }
 
-        // 3. Clear lookup and LRU caches upon adding new entries
         if added > 0 {
             tokenizer.clear_cache();
         }
@@ -720,7 +896,7 @@ impl PyBPETokenizer {
         Ok(added)
     }
 
-
+    /// Returns the total size of the active vocabulary.
     #[getter]
     fn vocab_size(&self) -> PyResult<usize> {
         let tokenizer = self.tokenizer.lock()
@@ -728,6 +904,7 @@ impl PyBPETokenizer {
         Ok(tokenizer.vocab.len())
     }
 
+    /// Returns the total number of BPE merge rules learned.
     #[getter]
     fn num_merges(&self) -> PyResult<usize> {
         let tokenizer = self.tokenizer.lock()
@@ -735,6 +912,7 @@ impl PyBPETokenizer {
         Ok(tokenizer.merges.len())
     }
 
+    /// Formats and outputs the complete vocabulary listing as a single string.
     #[getter]
     fn print_vocab(&self) -> PyResult<String> {
         let tokenizer = self.tokenizer.lock()
@@ -747,6 +925,13 @@ impl PyBPETokenizer {
 }
 
 // =========== PyBPEStats ===========
+/// Structural statistics summary for a PyBPETokenizer instance.
+///
+/// Attributes:
+///     vocab_size (int): Total entries in vocabulary.
+///     num_merges (int): Count of learned merge operations.
+///     num_special_tokens (int): Count of reserved special tokens.
+///     num_character_tokens (int): Base character/byte token count.
 #[pyclass(get_all)]
 #[derive(Debug, Clone)]
 struct PyBPEStats {
@@ -781,6 +966,10 @@ impl From<BPEStats> for PyBPEStats {
 }
 
 // =========== Module ===========
+/// Core Rust-backed Byte-Pair Encoding (BPE) tokenizer module.
+///
+/// Provides high-performance tokenization, parallel encoding, batch streaming,
+/// and vocabulary management capabilities for Python.
 #[pymodule]
 fn mayatok(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
