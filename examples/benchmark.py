@@ -5,7 +5,6 @@ import tiktoken
 
 # ======= Load tokenizers =======
 tokenizer = bpe.get_tokenizer("vb100k")
-# tokenizer = bpe.PyBPETokenizer.load("where-your-checkpoint-path-is-located")
 
 # Load tiktoken (cl100k_base is GPT-4's tokenizer, p50k_base is GPT-2/3's)
 tiktoken_cl100k = tiktoken.get_encoding("cl100k_base")
@@ -108,11 +107,19 @@ TEXT = "I love transformers and tokenizers."
 
 def compress(ids): return f"{len(TEXT)/len(ids):.3f} chars/token"
 
-print(f"  MayaTok:        {compress(tokenizer.encode(TEXT))}")
-print(f"  GPT-2:          {compress(hf_gpt2.encode(TEXT))}")
-print(f"  Falcon-7B:      {compress(hf_falcon.encode(TEXT))}")
-print(f"  tiktoken-cl100k:{compress(tiktoken_cl100k.encode(TEXT))}")
-print(f"  tiktoken-p50k:  {compress(tiktoken_p50k.encode(TEXT))}")
+details = [
+    ("MayaTok", compress(tokenizer.encode(TEXT))),
+    ("GPT-2", compress(hf_gpt2.encode(TEXT))),
+    ("LLaMA", compress(hf_llama.encode(TEXT))),
+    ("Falcon-7B", compress(hf_falcon.encode(TEXT))),
+    ("tiktoken-cl100k", compress(tiktoken_cl100k.encode(TEXT))),
+    ("tiktoken-p50k", compress(tiktoken_p50k.encode(TEXT)))
+    ]
+
+print(f"{'Tokenizer':<18} | {'Compressed Stat':>15}")
+print("-" * 36)
+for name, stat in details:
+    print(f"{name:<18} | {stat:>15}")
 
 
 print("\n=============== Tokenization Test ===============")

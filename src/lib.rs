@@ -57,7 +57,8 @@ lazy_static::lazy_static! {
 }
 
 #[pyfunction]
-fn get_tokenizer(py: Python, name: String) -> PyResult<PyBPETokenizer> {
+#[pyo3(signature = (name, strip_accents=false))]
+fn get_tokenizer(py: Python, name: String, strip_accents: bool) -> PyResult<PyBPETokenizer> {
     let url = REGISTRY.get(name.as_str())
         .ok_or_else(|| PyValueError::new_err(
             format!("Unknown tokenizer '{}'. Available: {:?}", name, 
@@ -67,7 +68,16 @@ fn get_tokenizer(py: Python, name: String) -> PyResult<PyBPETokenizer> {
     let path = load_or_download(&name, url)
         .map_err(|e| PyRuntimeError::new_err(e))?;
 
-    PyBPETokenizer::load(py, path.to_string_lossy().to_string())
+    let tok = PyBPETokenizer::load(py, path.to_string_lossy().to_string())?;
+    
+    {
+        let mut inner = tok.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        inner.strip_accents = strip_accents;
+        inner.clear_cache();
+    }
+
+    Ok(tok)
 }
 
 #[pyfunction]
@@ -437,6 +447,24 @@ impl PyBPETokenizer {
         Ok(())
     }
 
+    // ========== Tokenization Accent Handling ===========
+    /// Enable or disable accent stripping dynamically at runtime.
+    #[pyo3(signature = (enabled))]
+    fn set_strip_accents(&mut self, enabled: bool) -> PyResult<()> {
+        let mut tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        tokenizer.strip_accents = enabled;
+        tokenizer.clear_cache();
+        Ok(())
+    }
+
+    #[getter]
+    fn strip_accents(&self) -> PyResult<bool> {
+        let tokenizer = self.tokenizer.lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(tokenizer.strip_accents)
+    }
+
     // =========== ENCODE ===========
     // encode → List[int], 
     #[pyo3(signature = (text))]
@@ -632,20 +660,66 @@ impl PyBPETokenizer {
         Ok(tokenizer.reverse_vocab.get(&id).cloned())
     }
 
-    fn add_tokens(&mut self, tokens: Vec<String>) -> PyResult<usize> {
-        let mut tokenizer = self.tokenizer.lock()
+
+
+    /// Adds a list of new special or literal tokens to the tokenizer's vocabulary.
+    ///
+    /// Tokens added through this method are guaranteed to be assigned contiguous,
+    /// non-colliding token IDs starting after the current maximum vocabulary ID.
+    /// Added tokens are registered in the encoder matcher so they are encoded as
+    /// atomic whole units rather than being split into subwords or byte-fallback sequences.
+    ///
+    /// Calling this method automatically invalidates any existing encoding and lookup
+    /// caches to ensure consistency.
+    ///
+    /// Args:
+    ///     tokens (list[str]): A list of string tokens to add to the vocabulary.
+    ///
+    /// Returns:
+    ///     int: The number of new, unique tokens successfully added.
+    ///
+    /// Example:
+    ///     >>> num_added = tokenizer.add_tokens(["<custom_tag>", "∇f"])
+    ///     >>> print(f"Added {num_added} tokens")
+    // #[text_signature = "($self, tokens, /)"]
+    pub fn add_tokens(&mut self, tokens: Vec<String>) -> PyResult<usize> {
+        let mut tokenizer = self
+            .tokenizer
+            .lock()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+
         let mut added = 0;
+
+        // Safely identify the next unique ID using the current max value
+        let mut next_id = tokenizer
+            .vocab
+            .values()
+            .copied()
+            .max()
+            .map_or(0, |max_id| max_id + 1);
+
         for token in tokens {
             if !tokenizer.vocab.contains_key(&token) {
-                let new_id = tokenizer.vocab.len() as u32;
-                tokenizer.vocab.insert(token.clone(), new_id);
-                tokenizer.reverse_vocab.insert(new_id, token);
+                // 1. Forward and reverse vocabulary map update
+                tokenizer.vocab.insert(token.clone(), next_id);
+                tokenizer.reverse_vocab.insert(next_id, token.clone());
+
+                // 2. Explicit added_tokens registry so encoder matches as an atomic unit
+                tokenizer.added_tokens.insert(token, next_id);
+
+                next_id += 1;
                 added += 1;
             }
         }
+
+        // 3. Clear lookup and LRU caches upon adding new entries
+        if added > 0 {
+            tokenizer.clear_cache();
+        }
+
         Ok(added)
     }
+
 
     #[getter]
     fn vocab_size(&self) -> PyResult<usize> {

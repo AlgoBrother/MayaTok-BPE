@@ -1,32 +1,42 @@
 // BYTE PAIR TOKENIZER SECTION
 
-use core::fmt;
-use std::{collections::HashSet, hash::Hash, cmp};
-use hashbrown::HashMap;
-use ahash::AHasher;
-use std::hash::BuildHasherDefault;
-use rayon::prelude::*;
-use serde::{Serialize, Deserialize};
-use std::sync::Arc;
 use crate::bpe_tokenizer_lib::utils::cache::LruCache;
 use crate::text_normalizer::TextNormalizer;
+use ahash::AHasher;
+use core::fmt;
+use hashbrown::HashMap;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::hash::BuildHasherDefault;
+use std::sync::Arc;
+use std::{cmp, collections::HashSet, hash::Hash};
 
-extern crate serde;
 extern crate bincode;
+extern crate serde;
 
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
-use regex::Regex;
-use lazy_static::lazy_static;
 
 // =========== Regex for Pre-tokenization ============
 lazy_static! {
+    /// Regular expression for pre-tokenization.
     static ref PRE_TOKENIZER_RE: Regex =
         Regex::new(
             r"(?i:'s|'t|'re|'ve|'m|'ll|'d)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\n[ \t]*| +"
         ).unwrap();
 
-    static ref NORMALIZER: TextNormalizer = TextNormalizer::new().to_strip_accents();
+    static ref NORMALIZER: TextNormalizer = TextNormalizer::new();
+
+    /// Accent-stripping normalizer (converts combining marks e.g., 'é' -> 'e')
+    static ref NORMALIZER_STRIP: TextNormalizer = TextNormalizer::new().to_strip_accents();
+}
+
+//  =========== BYTE-FALLBACK ===========
+lazy_static! {
+    /// Regular expression matching byte-fallback tokens in the format `<0xXX>`.
+    static ref BYTE_FALLBACK_RE: Regex = Regex::new(r"^<0x([0-9A-Fa-f]{2})>$").unwrap();
 }
 
 // =========== Error handling ============
@@ -73,11 +83,14 @@ impl fmt::Display for TokenPair {
 // list via indices. Both get() and put() are O(1).
 pub mod utils {
     pub mod non_string_map_serialization {
-        use serde::{Serialize, Serializer, Deserialize, Deserializer};
         use hashbrown::HashMap;
+        use serde::{Deserialize, Deserializer, Serialize, Serializer};
         use std::hash::{BuildHasher, Hash};
 
-        pub fn serialize<S, K, V, H>(map: &HashMap<K, V, H>, serializer: S) -> Result<S::Ok, S::Error>
+        pub fn serialize<S, K, V, H>(
+            map: &HashMap<K, V, H>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
             K: Serialize + Eq + Hash,
@@ -137,15 +150,27 @@ pub mod utils {
 
         impl<K, V> Default for LruCache<K, V>
         where
-            K: Eq + std::hash::Hash + Clone + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+            K: Eq
+                + std::hash::Hash
+                + Clone
+                + std::fmt::Debug
+                + Serialize
+                + for<'de> Deserialize<'de>,
             V: Clone + Serialize + for<'de> Deserialize<'de>,
         {
-            fn default() -> Self { Self::new(50_000) }
+            fn default() -> Self {
+                Self::new(50_000)
+            }
         }
 
         impl<K, V> LruCache<K, V>
         where
-            K: Eq + std::hash::Hash + Clone + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+            K: Eq
+                + std::hash::Hash
+                + Clone
+                + std::fmt::Debug
+                + Serialize
+                + for<'de> Deserialize<'de>,
             V: Clone + Serialize + for<'de> Deserialize<'de>,
         {
             pub fn new(capacity: usize) -> Self {
@@ -163,10 +188,16 @@ pub mod utils {
             fn detach(&mut self, idx: usize) {
                 let prev = self.nodes[idx].prev;
                 let next = self.nodes[idx].next;
-                if prev != usize::MAX { self.nodes[prev].next = next; }
-                else { self.head = next; }
-                if next != usize::MAX { self.nodes[next].prev = prev; }
-                else { self.tail = prev; }
+                if prev != usize::MAX {
+                    self.nodes[prev].next = next;
+                } else {
+                    self.head = next;
+                }
+                if next != usize::MAX {
+                    self.nodes[next].prev = prev;
+                } else {
+                    self.tail = prev;
+                }
                 self.nodes[idx].prev = usize::MAX;
                 self.nodes[idx].next = usize::MAX;
             }
@@ -225,7 +256,12 @@ pub mod utils {
                     idx
                 };
 
-                self.nodes[idx] = Node { key: key.clone(), value, prev: usize::MAX, next: usize::MAX };
+                self.nodes[idx] = Node {
+                    key: key.clone(),
+                    value,
+                    prev: usize::MAX,
+                    next: usize::MAX,
+                };
                 self.map.insert(key, idx);
                 self.attach_head(idx);
             }
@@ -250,8 +286,12 @@ impl Default for TrainingConfig {
             vocab_size: 50_000,
             min_frequency: 2,
             special_tokens: vec![
-                "<pad>".to_string(), "<unk>".to_string(), "<s>".to_string(),
-                "</s>".to_string(), "<mask>".to_string(), "<cls>".to_string(),
+                "<pad>".to_string(),
+                "<unk>".to_string(),
+                "<s>".to_string(),
+                "</s>".to_string(),
+                "<mask>".to_string(),
+                "<cls>".to_string(),
                 "</w>".to_string(),
             ],
             show_progress: true,
@@ -304,8 +344,12 @@ impl Default for IncrementalTrainingConfig {
             merge_frequency: 10,
             save_frequency: 100,
             special_tokens: vec![
-                "<pad>".to_string(), "<unk>".to_string(), "<s>".to_string(),
-                "</s>".to_string(), "<mask>".to_string(), "<cls>".to_string(),
+                "<pad>".to_string(),
+                "<unk>".to_string(),
+                "<s>".to_string(),
+                "</s>".to_string(),
+                "<mask>".to_string(),
+                "<cls>".to_string(),
                 "</w>".to_string(),
             ],
             show_progress: true,
@@ -345,7 +389,9 @@ impl IncrementalTrainingState {
     pub fn reconstruct_pair_freq(&mut self) {
         self.pair_freq.clear();
         for (segment_ids, count) in &self.word_segments {
-            if segment_ids.len() < 2 { continue; }
+            if segment_ids.len() < 2 {
+                continue;
+            }
             for window in segment_ids.windows(2) {
                 let pair = TokenPair(window[0], window[1]);
                 *self.pair_freq.entry(pair).or_insert(0) += count;
@@ -354,11 +400,13 @@ impl IncrementalTrainingState {
     }
 
     pub fn cleanup_low_frequency_segments(&mut self, min_frequency: usize) {
-        self.word_segments.retain(|_, &mut count| count >= min_frequency);
+        self.word_segments
+            .retain(|_, &mut count| count >= min_frequency);
     }
 
     pub fn cleanup_long_segments(&mut self, max_length: usize) {
-        self.word_segments.retain(|segment, _| segment.len() <= max_length);
+        self.word_segments
+            .retain(|segment, _| segment.len() <= max_length);
     }
 
     pub fn aggressive_cleanup(&mut self, frequency_threshold: usize, length_threshold: usize) {
@@ -369,31 +417,42 @@ impl IncrementalTrainingState {
 }
 
 fn is_whitespace_only(s: &str) -> bool {
-    s.chars().all(|c| c == ' ' || c == '\n' || c == '\t' || c == '\r')
+    s.chars()
+        .all(|c| c == ' ' || c == '\n' || c == '\t' || c == '\r')
 }
 
 // ========== Encoding BLOCK ============
 
-// I AM TIRED OF COPY PASTING TWO FUNCTIONS IN TOKENIZER AND THREAD
-// HAVE THIS ONE HERE. REST I WILL SEE IT. IF IT WORKS NOW, IT WORKS
-// I WILL SEE DESYNC LATER IF IT HAPPENS
+/// Encapsulates the result of encoding a text or pair of texts, including input IDs, attention mask, and token type IDs.
 fn encode_text_inner(
     text: &str,
     vocab: &FastHashMap<String, u32>,
     merge_rank: &FastHashMap<TokenPair, usize>,
     merge_id: &FastHashMap<TokenPair, u32>,
+    added_tokens: &FastHashMap<String, u32>,
     special_tokens_ids: &FastHashMap<String, u32>,
+    strip_accents: bool,
     end_of_word_token: &str,
     unk_id: u32,
     cache: &mut LruCache<String, Arc<Vec<u32>>>,
 ) -> TokenizedResult<Vec<u32>> {
+    let normalizer: &TextNormalizer = if strip_accents {
+        &NORMALIZER_STRIP
+    } else {
+        &NORMALIZER
+    };
 
     // check if text is a special token
     if let Some(&id) = special_tokens_ids.get(text) {
         return Ok(vec![id]);
     }
 
-    // check cache 
+    // check if text is an added token
+    if let Some(&id) = added_tokens.get(text) {
+        return Ok(vec![id]);
+    }
+
+    // check cache
     if let Some(cached) = cache.get(text) {
         return Ok((**cached).clone());
     }
@@ -404,17 +463,24 @@ fn encode_text_inner(
     for word in PRE_TOKENIZER_RE.find_iter(text).map(|m| m.as_str()) {
         let first = word.chars().next().unwrap_or(' ');
         let is_word = if first == ' ' || first == '\t' {
-            word.chars().nth(1).map(|c| c.is_alphanumeric()).unwrap_or(false)
+            word.chars()
+                .nth(1)
+                .map(|c| c.is_alphanumeric() || ('\u{2070}'..='\u{209C}').contains(&c))
+                .unwrap_or(false)
         } else {
-            first.is_alphanumeric()
+            first.is_alphanumeric() || ('\u{2070}'..='\u{209C}').contains(&first)
         };
 
         let word_normalized = if is_word {
-        let leading = if word.starts_with(' ') { " " } 
-                    else if word.starts_with('\t') { "\t" }
-                    else { "" };
+            let leading = if word.starts_with(' ') {
+                " "
+            } else if word.starts_with('\t') {
+                "\t"
+            } else {
+                ""
+            };
             let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
-            format!("{}{}", leading, NORMALIZER.normalize(word_part))
+            format!("{}{}", leading, normalizer.normalize(word_part))
         } else {
             word.to_string()
         };
@@ -424,24 +490,38 @@ fn encode_text_inner(
             chars.push(end_of_word_token.to_string());
         }
 
-        let mut word_ids: Vec<u32> = chars.iter().flat_map(|s| {
-            if let Some(&id) = vocab.get(s) {
-                vec![id]
-            } else {
-                s.as_bytes().iter().map(|byte| {
-                    let key = format!("<0x{:02X}>", byte);
-                    vocab.get(&key).copied().unwrap_or(unk_id)
-                }).collect()
-            }
-        }).collect();
-
+        // Inside encode_text_inner for characters/strings missing from vocab:
+        // In encode_text_inner:
+        let mut word_ids: Vec<u32> = chars
+            .iter()
+            .flat_map(|s| {
+                if let Some(&id) = vocab.get(s) {
+                    vec![id]
+                } else {
+                    // Un-vocab character: convert the ENTIRE char's UTF-8 bytes at once
+                    s.as_bytes()
+                        .iter()
+                        .map(|byte| {
+                            let key = format!("<0x{:02X}>", byte);
+                            vocab.get(&key).copied().unwrap_or(unk_id)
+                        })
+                        .collect()
+                }
+            })
+            .collect();
         if is_word {
             loop {
-                if word_ids.len() < 2 { break; }
-                let best = word_ids.windows(2).enumerate().filter_map(|(pos, w)| {
-                    let pair = TokenPair(w[0], w[1]);
-                    merge_rank.get(&pair).map(|&rank| (rank, pos, pair))
-                }).min_by_key(|&(rank, _, _)| rank);
+                if word_ids.len() < 2 {
+                    break;
+                }
+                let best = word_ids
+                    .windows(2)
+                    .enumerate()
+                    .filter_map(|(pos, w)| {
+                        let pair = TokenPair(w[0], w[1]);
+                        merge_rank.get(&pair).map(|&rank| (rank, pos, pair))
+                    })
+                    .min_by_key(|&(rank, _, _)| rank);
 
                 match best {
                     None => break,
@@ -471,12 +551,11 @@ fn encode_text_inner(
 #[derive(Debug, Clone)]
 pub struct Encoding {
     pub input_ids: Vec<u32>,
-    pub attention_mask: Vec<u32>,  // 1 = real token, 0 = padding
-    pub token_type_ids: Vec<u32>,  // 0 = sentence A, 1 = sentence B
+    pub attention_mask: Vec<u32>, // 1 = real token, 0 = padding
+    pub token_type_ids: Vec<u32>, // 0 = sentence A, 1 = sentence B
 }
 
-impl Encoding{
-
+impl Encoding {
     // build encoding from ids with options for padding, truncation, and special tokens
     pub fn build_with_pair(
         mut ids_a: Vec<u32>,
@@ -539,9 +618,13 @@ impl Encoding{
         // token_type_ids: 0 for A, 1 for B, 0 for padding
         let token_type_ids: Vec<u32> = (0..seq_len)
             .map(|i| {
-                if i < len_a { 0 }
-                else if i < len_a + len_b { 1 }
-                else { 0 }
+                if i < len_a {
+                    0
+                } else if i < len_a + len_b {
+                    1
+                } else {
+                    0
+                }
             })
             .collect();
 
@@ -549,7 +632,11 @@ impl Encoding{
             .map(|i| if i < real_len { 1 } else { 0 })
             .collect();
 
-        Encoding { input_ids: ids, attention_mask, token_type_ids }
+        Encoding {
+            input_ids: ids,
+            attention_mask,
+            token_type_ids,
+        }
     }
 
     pub fn build(
@@ -560,10 +647,16 @@ impl Encoding{
         add_special_tokens: bool,
         special_tokens_ids: &FastHashMap<String, u32>,
     ) -> Self {
-        Self::build_with_pair(ids, None, max_length, padding, truncation, add_special_tokens, special_tokens_ids)
+        Self::build_with_pair(
+            ids,
+            None,
+            max_length,
+            padding,
+            truncation,
+            add_special_tokens,
+            special_tokens_ids,
+        )
     }
-
-    
 
     // function to build encoding from ids with default config (no truncation, no padding, no special tokens)
     pub fn single(ids: Vec<u32>) -> Self {
@@ -576,7 +669,6 @@ impl Encoding{
     }
 }
 
-
 // =========== Core tokenizer struct ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -586,6 +678,11 @@ pub struct BPETokenizer {
     #[serde(deserialize_with = "utils::non_string_map_serialization::deserialize")]
     pub reverse_vocab: FastHashMap<u32, String>,
     pub merges: Vec<(TokenPair, u32)>,
+    #[serde(default)]
+    pub strip_accents: bool,
+
+    #[serde(default)]
+    pub added_tokens: FastHashMap<String, u32>,
     pub unknown_tokens: String,
     pub special_tokens_ids: FastHashMap<String, u32>,
     pub end_of_word_token: String,
@@ -593,14 +690,16 @@ pub struct BPETokenizer {
     #[serde(skip)]
     pub merge_rank: FastHashMap<TokenPair, usize>, // pair -> priority (lower = higher priority)
     #[serde(skip)]
-    pub merge_id: FastHashMap<TokenPair, u32>,     // pair -> resulting token id
+    pub merge_id: FastHashMap<TokenPair, u32>, // pair -> resulting token id
 
     #[serde(skip)]
     pub cache: utils::cache::LruCache<String, Arc<Vec<u32>>>,
 }
 
 impl Default for BPETokenizer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BPETokenizer {
@@ -614,21 +713,39 @@ impl BPETokenizer {
         let mut next_id: u32 = 0;
 
         // Seed vocabulary — identical set to original
-        for ch in 'a'..='z' { vocab.insert(ch.to_string(), next_id); next_id += 1; }
-        for ch in 'A'..='Z' { vocab.insert(ch.to_string(), next_id); next_id += 1; }
-        for ch in '0'..='9' { vocab.insert(ch.to_string(), next_id); next_id += 1; }
-
-        let special_chars = [
-            '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '-', '_', '=', '+', '.', ',', ':', ';',
-            '?', '/', '<', '>', '[', ']', '{', '}', '|', '\\', '`', '~', '"', '\'', ' ', '\t', '\n',
-            '¢', '£', '€', '¥', '₹', '©', '®', '™', '°', '±', 'µ', '÷', '×', '§', '¶', '•', '–', '—',
-            '\u{00A0}', '\u{200B}', '\u{202F}', '\u{200C}', '\u{200D}', '\u{2060}', '\u{FEFF}', '\u{180E}',
-        ];
-        for &ch in &special_chars {
-            vocab.entry(ch.to_string()).or_insert_with(|| { let id = next_id; next_id += 1; id });
+        for ch in 'a'..='z' {
+            vocab.insert(ch.to_string(), next_id);
+            next_id += 1;
+        }
+        for ch in 'A'..='Z' {
+            vocab.insert(ch.to_string(), next_id);
+            next_id += 1;
+        }
+        for ch in '0'..='9' {
+            vocab.insert(ch.to_string(), next_id);
+            next_id += 1;
         }
 
-        vocab.entry(eow_token.clone()).or_insert_with(|| { let id = next_id; next_id += 1; id });
+        let special_chars = [
+            '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '-', '_', '=', '+', '.', ',', ':',
+            ';', '?', '/', '<', '>', '[', ']', '{', '}', '|', '\\', '`', '~', '"', '\'', ' ', '\t',
+            '\n', '¢', '£', '€', '¥', '₹', '©', '®', '™', '°', '±', 'µ', '÷', '×', '§', '¶', '•',
+            '–', '—', '\u{00A0}', '\u{200B}', '\u{202F}', '\u{200C}', '\u{200D}', '\u{2060}',
+            '\u{FEFF}', '\u{180E}',
+        ];
+        for &ch in &special_chars {
+            vocab.entry(ch.to_string()).or_insert_with(|| {
+                let id = next_id;
+                next_id += 1;
+                id
+            });
+        }
+
+        vocab.entry(eow_token.clone()).or_insert_with(|| {
+            let id = next_id;
+            next_id += 1;
+            id
+        });
 
         for byte in 0u8..=255 {
             let key = format!("<0x{:02X}>", byte);
@@ -642,7 +759,7 @@ impl BPETokenizer {
         let mut special_tokens_ids: FastHashMap<String, u32> = FastHashMap::default();
         for token in &config.special_tokens {
             let id = vocab.entry(token.clone()).or_insert_with(|| {
-                let id = next_id; 
+                let id = next_id;
                 next_id += 1;
                 id
             });
@@ -658,6 +775,8 @@ impl BPETokenizer {
             vocab,
             reverse_vocab,
             merges: Vec::new(),
+            strip_accents: false,
+            added_tokens: FastHashMap::default(),
             end_of_word_token: eow_token,
             unknown_tokens: unk_token,
             special_tokens_ids,
@@ -669,16 +788,18 @@ impl BPETokenizer {
 
     // =========== Merge lookup table construction ============
     pub fn build_merge_lookups(&mut self) {
-        self.merge_rank = self.merges.iter().enumerate()
+        self.merge_rank = self
+            .merges
+            .iter()
+            .enumerate()
             .map(|(rank, (pair, _))| (*pair, rank))
             .collect();
-        self.merge_id = self.merges.iter()
-            .map(|(pair, id)| (*pair, *id))
-            .collect();
+        self.merge_id = self.merges.iter().map(|(pair, id)| (*pair, *id)).collect();
     }
 
     fn unk_ids(&self) -> u32 {
-        *self.special_tokens_ids
+        *self
+            .special_tokens_ids
             .get(&self.unknown_tokens)
             .expect("UNKNOWN TOKENS MUST BE INITIALIZED IN SPECIAL TOKEN IDS")
     }
@@ -690,9 +811,9 @@ impl BPETokenizer {
     }
 
     pub fn get_token_from_id(&self, id: u32) -> &String {
-        self.reverse_vocab.get(&id).unwrap_or_else(|| {
-            panic!("ID {} not found in reverse_vocab", id)
-        })
+        self.reverse_vocab
+            .get(&id)
+            .unwrap_or_else(|| panic!("ID {} not found in reverse_vocab", id))
     }
 
     pub fn get_id_to_token_map(&self) -> FastHashMap<u32, String> {
@@ -704,10 +825,18 @@ impl BPETokenizer {
             vocab_size: self.vocab.len(),
             num_merges: self.merges.len(),
             num_special_tokens: self.special_tokens_ids.len(),
-            num_character_tokens: self.vocab.len()
+            num_character_tokens: self
+                .vocab
+                .len()
                 .saturating_sub(self.special_tokens_ids.len())
                 .saturating_sub(self.merges.len()),
         }
+    }
+
+    // =========== Cache management ============
+    /// Clears the LRU lookup cache when new vocabulary tokens are added
+    pub fn clear_cache(&mut self) {
+        self.cache = LruCache::new(150_000);
     }
 
     // =========== Merge application helpers ============
@@ -716,15 +845,15 @@ impl BPETokenizer {
         let mut write = 0;
         let mut read = 0;
         while read < segments.len() {
-            if read + 1 < segments.len()
-                && segments[read] == pair.0
-                && segments[read + 1] == pair.1
+            if read + 1 < segments.len() && segments[read] == pair.0 && segments[read + 1] == pair.1
             {
                 segments[write] = new_token_id;
                 write += 1;
                 read += 2;
             } else {
-                if write != read { segments[write] = segments[read]; }
+                if write != read {
+                    segments[write] = segments[read];
+                }
                 write += 1;
                 read += 1;
             }
@@ -765,7 +894,9 @@ impl BPETokenizer {
             &self.vocab,
             &self.merge_rank,
             &self.merge_id,
+            &self.added_tokens,
             &self.special_tokens_ids,
+            self.strip_accents,
             &self.end_of_word_token,
             unk,
             &mut self.cache,
@@ -785,26 +916,40 @@ impl BPETokenizer {
         truncation: bool,
         add_special_tokens: bool,
     ) -> TokenizedResult<Vec<Encoding>> {
-
         let shared = Arc::new(SharedTokenizerData {
             vocab: &self.vocab,
             merge_rank: &self.merge_rank,
             merge_id: &self.merge_id,
             special_tokens_ids: &self.special_tokens_ids,
             end_of_word_token: &self.end_of_word_token,
+            added_tokens: &self.added_tokens,
             unknown_tokens: &self.unknown_tokens,
+            strip_accents: self.strip_accents,
         });
 
         // Single-threaded path for small batches
         if texts.len() < config.parallel_threshold {
             let mut local = self.clone();
-            return texts.iter().enumerate().map(|(i, text)| {
-                let text_b = texts_b.and_then(|b| b.get(i).map(|s| s.as_str()));
-                local.encode(text, text_b, max_length, padding, truncation, add_special_tokens)
-            }).collect();
+            return texts
+                .iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    let text_b = texts_b.and_then(|b| b.get(i).map(|s| s.as_str()));
+                    local.encode(
+                        text,
+                        text_b,
+                        max_length,
+                        padding,
+                        truncation,
+                        add_special_tokens,
+                    )
+                })
+                .collect();
         }
 
-        let n_threads = config.max_threads.unwrap_or_else(rayon::current_num_threads);
+        let n_threads = config
+            .max_threads
+            .unwrap_or_else(rayon::current_num_threads);
         let chunk_size = cmp::max(config.parallel_threshold, texts.len() / n_threads);
 
         let pool = rayon::ThreadPoolBuilder::new()
@@ -813,27 +958,37 @@ impl BPETokenizer {
             .map_err(|e| TokenizerError::EncodingError(e.to_string()))?;
 
         pool.install(|| {
-            texts.par_chunks(chunk_size).enumerate().map(|(chunk_idx, chunk)| {
-                let mut thread_tok = ThreadLocalTokenizer::new(
-                    Arc::clone(&shared),
-                    config.thread_cache_size,
-                );
-                let offset = chunk_idx * chunk_size;
-                // in pool.install closure
-                chunk.iter().enumerate().map(|(i, text)| {
-                    let text_b = texts_b
-                        .and_then(|b| b.get(offset + i).map(|s| s.as_str()));
-                    thread_tok.encode(
-                        text, text_b, max_length, padding, truncation, add_special_tokens
-                    )
-                }).collect::<TokenizedResult<Vec<Encoding>>>()
-            })
-            .collect::<TokenizedResult<Vec<Vec<Encoding>>>>()
-            .map(|chunks| chunks.into_iter().flatten().collect())
+            texts
+                .par_chunks(chunk_size)
+                .enumerate()
+                .map(|(chunk_idx, chunk)| {
+                    let mut thread_tok =
+                        ThreadLocalTokenizer::new(Arc::clone(&shared), config.thread_cache_size);
+                    let offset = chunk_idx * chunk_size;
+                    // in pool.install closure
+                    chunk
+                        .iter()
+                        .enumerate()
+                        .map(|(i, text)| {
+                            let text_b =
+                                texts_b.and_then(|b| b.get(offset + i).map(|s| s.as_str()));
+                            thread_tok.encode(
+                                text,
+                                text_b,
+                                max_length,
+                                padding,
+                                truncation,
+                                add_special_tokens,
+                            )
+                        })
+                        .collect::<TokenizedResult<Vec<Encoding>>>()
+                })
+                .collect::<TokenizedResult<Vec<Vec<Encoding>>>>()
+                .map(|chunks| chunks.into_iter().flatten().collect())
         })
     }
 
-    // encode_fast and encode_batch_fast are made for PRETRAINING 
+    // encode_fast and encode_batch_fast are made for PRETRAINING
     pub fn encode_fast(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
         self.encode_text_inner(text)
     }
@@ -848,8 +1003,10 @@ impl BPETokenizer {
             merge_rank: &self.merge_rank,
             merge_id: &self.merge_id,
             special_tokens_ids: &self.special_tokens_ids,
+            added_tokens: &self.added_tokens,
             end_of_word_token: &self.end_of_word_token,
             unknown_tokens: &self.unknown_tokens,
+            strip_accents: self.strip_accents,
         });
 
         if texts.len() < config.parallel_threshold {
@@ -857,7 +1014,9 @@ impl BPETokenizer {
             return texts.iter().map(|t| local.encode_text_inner(t)).collect();
         }
 
-        let n_threads = config.max_threads.unwrap_or_else(rayon::current_num_threads);
+        let n_threads = config
+            .max_threads
+            .unwrap_or_else(rayon::current_num_threads);
         let chunk_size = cmp::max(config.parallel_threshold, texts.len() / n_threads);
 
         let pool = rayon::ThreadPoolBuilder::new()
@@ -866,56 +1025,132 @@ impl BPETokenizer {
             .map_err(|e| TokenizerError::EncodingError(e.to_string()))?;
 
         pool.install(|| {
-            texts.par_chunks(chunk_size).map(|chunk| {
-                let mut thread_tok = ThreadLocalTokenizer::new(
-                    Arc::clone(&shared),
-                    config.thread_cache_size,
-                );
-                chunk.iter()
-                    .map(|text| thread_tok.encode_text_inner(text))
-                    .collect::<TokenizedResult<Vec<Vec<u32>>>>()
-            })
-            .collect::<TokenizedResult<Vec<Vec<Vec<u32>>>>>()
-            .map(|chunks| chunks.into_iter().flatten().collect())
+            texts
+                .par_chunks(chunk_size)
+                .map(|chunk| {
+                    let mut thread_tok =
+                        ThreadLocalTokenizer::new(Arc::clone(&shared), config.thread_cache_size);
+                    chunk
+                        .iter()
+                        .map(|text| thread_tok.encode_text_inner(text))
+                        .collect::<TokenizedResult<Vec<Vec<u32>>>>()
+                })
+                .collect::<TokenizedResult<Vec<Vec<Vec<u32>>>>>()
+                .map(|chunks| chunks.into_iter().flatten().collect())
         })
     }
 
     // =========== Decoder ============
-    pub fn decode(&self, token_ids: &[u32]) -> String {
-        let mut parts: Vec<&str> = Vec::with_capacity(token_ids.len());
-        for &id in token_ids {
-            match self.reverse_vocab.get(&id) {
-                None => parts.push(&self.unknown_tokens),
-                Some(token) => {
-                    if self.special_tokens_ids.contains_key(token)
-                        && token != &self.unknown_tokens
-                        && token != &self.end_of_word_token
-                    {
-                        continue;
-                    }
-                    parts.push(token);
-                }
+
+    /// Collects consecutive `<0xXX>` byte tokens into a buffer and converts them to UTF-8 using
+    /// lossy conversion to guarantee safe handling of incomplete multi-byte sequences.
+    /// Returns `Some(bytes)` if `token` is *entirely* a sequence of byte-fallback
+    /// tokens, optionally followed by end-of-word markers.
+    ///
+    /// Handles:
+    ///   "<0xA9>"                 → [0xA9]
+    ///   "<0xA9>⁄"                → [0xA9]           (byte merged with eow)
+    ///   "<0xC3><0xA9>"           → [0xC3, 0xA9]      (two bytes merged)
+    ///   "<0xE2><0x88><0x87>⁄"    → [0xE2, 0x88, 0x87]
+    /// Returns `None` for tokens that mix literal text with byte tokens
+    /// (e.g. "ab<0xE2>") — those are treated as literal text, preserving
+    /// the "literal <0xXX> protection" behaviour.
+    fn token_as_byte_sequence(token: &str, eow: &str) -> Option<Vec<u8>> {
+        // Strip a literal eow if present.
+        let mut s = token.strip_suffix(eow).unwrap_or(token);
+
+        // Also strip a trailing byte-encoded eow (UTF-8 bytes of the eow char,
+        // each rendered as <0xXX>).
+        let eow_bytes: Vec<u8> = eow.bytes().collect();
+        if !eow_bytes.is_empty() {
+            let mut encoded = String::new();
+            for b in &eow_bytes {
+                encoded.push_str(&format!("<0x{:02X}>", b));
             }
+            s = s.strip_suffix(encoded.as_str()).unwrap_or(s);
         }
-        parts.join("")
-            .replace(&self.end_of_word_token, "")
-            .replace('⁄', "")
-            .replace('\u{2044}', "")
-            .trim_start()
-            .to_string()
+
+        if s.is_empty() {
+            return None;
+        }
+
+        // Parse one or more concatenated <0xXX> tokens.
+        let mut bytes = Vec::new();
+        let mut rest = s;
+        while !rest.is_empty() {
+            if rest.len() < 6 || !rest.is_char_boundary(6) {
+                return None;
+            }
+            let (head, tail) = rest.split_at(6);
+            let caps = BYTE_FALLBACK_RE.captures(head)?;
+            bytes.push(u8::from_str_radix(&caps[1], 16).ok()?);
+            rest = tail;
+        }
+        Some(bytes)
+    }
+    /// ### Decodes a sequence of token IDs back into a UTF-8 string.
+    ///
+    /// This method processes regular vocabulary tokens, skips designated special tokens,
+    /// strips end-of-word markers (`⁄`), and reconstructs original UTF-8 characters
+    /// from consecutive byte-fallback tokens (e.g., `<0x87>` -> `∇`).
+    ///
+    /// ## Parameters
+    /// => `token_ids`: A slice of `u32` token identifiers to decode.
+    ///
+    /// ## Returns
+    /// A `String` representing the decoded text with byte sequences reconstructed
+    /// and normalized.
+    /// Decodes a sequence of token IDs back into a UTF-8 string with byte-fallback reconstruction.
+    ///
+    pub fn decode(&self, token_ids: &[u32]) -> String {
+        let mut raw_bytes: Vec<u8> = Vec::with_capacity(token_ids.len() * 2);
+
+        for &id in token_ids {
+            let Some(token) = self.reverse_vocab.get(&id) else {
+                continue;
+            };
+
+            if self.special_tokens_ids.contains_key(token)
+                && token != &self.unknown_tokens
+                && token != &self.end_of_word_token
+            {
+                continue;
+            }
+
+            // NEW: recognise both pure and merged byte-fallback sequences.
+            if let Some(bytes) = Self::token_as_byte_sequence(token, &self.end_of_word_token) {
+                raw_bytes.extend_from_slice(&bytes);
+                continue;
+            }
+
+            let cleaned = token.replace(&self.end_of_word_token, "");
+            raw_bytes.extend_from_slice(cleaned.as_bytes());
+        }
+
+        String::from_utf8_lossy(&raw_bytes).to_string()
     }
 
+    /// ### Decodes a batch of token ID sequences in parallel.
+    ///
+    ///
+    /// ## Parameters
+    /// `batch_ids`: A slice of token ID vectors.
+    ///
+    /// ## Returns
+    /// A vector of decoded `String` results matching the order of input sequences.
     pub fn decode_batch(&self, batch_ids: &[Vec<u32>]) -> Vec<String> {
-        batch_ids.par_iter()
-                .map(|ids| self.decode(ids))
-                .collect()
+        batch_ids.par_iter().map(|ids| self.decode(ids)).collect()
     }
 
     // =========== TRAIN THE TOKENIZER ============
     // after each merge, only the affected segments update pair counts.
     pub fn train(&mut self, corpus: &[String], config: TrainingConfig) {
         println!("Starting BPE Training");
-        println!("Corpus: {} documents, target vocab: {}", corpus.len(), config.vocab_size);
+        println!(
+            "Corpus: {} documents, target vocab: {}",
+            corpus.len(),
+            config.vocab_size
+        );
 
         rayon::ThreadPoolBuilder::new()
             .num_threads(config.n_threads.unwrap_or(num_cpus::get()))
@@ -923,56 +1158,76 @@ impl BPETokenizer {
             .ok(); // ignore if already initialized
 
         // --- Initial segmentation (parallel) ---
-        let init_results: Vec<(FastHashMap<Vec<u32>, usize>, HashSet<String>)> =
-            corpus.par_iter().map(|doc| {
+        let init_results: Vec<(FastHashMap<Vec<u32>, usize>, HashSet<String>)> = corpus
+            .par_iter()
+            .map(|doc| {
                 let mut local_segs: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
                 let mut local_chars: HashSet<String> = HashSet::new();
 
                 for word in PRE_TOKENIZER_RE.find_iter(doc.as_str()).map(|m| m.as_str()) {
                     let first = word.chars().next().unwrap_or(' ');
                     let is_word = if first == ' ' || first == '\t' {
-                        word.chars().nth(1).map(|c| c.is_alphanumeric()).unwrap_or(false)
+                        word.chars()
+                            .nth(1)
+                            .map(|c| c.is_alphanumeric())
+                            .unwrap_or(false)
                     } else {
                         first.is_alphanumeric()
                     };
 
                     let word_normalized = if is_word {
-                    let leading = if word.starts_with(' ') { " " } 
-                                else if word.starts_with('\t') { "\t" }
-                                else { "" };
+                        let leading = if word.starts_with(' ') {
+                            " "
+                        } else if word.starts_with('\t') {
+                            "\t"
+                        } else {
+                            ""
+                        };
                         let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
                         format!("{}{}", leading, NORMALIZER.normalize(word_part))
                     } else {
                         word.to_string()
                     };
 
-                    let mut chars: Vec<String> = word_normalized.chars().map(|c| c.to_string()).collect();
+                    let mut chars: Vec<String> =
+                        word_normalized.chars().map(|c| c.to_string()).collect();
                     if is_word {
                         chars.push(self.end_of_word_token.clone()); // EOW only on words
                     }
-                    
-                    for ch in &chars { local_chars.insert(ch.clone()); }
-                    
-                    let ids: Vec<u32> = chars.iter().flat_map(|s| {
-                        if let Some(&id) = self.vocab.get(s) {
-                            vec![id]
-                        } else {
-                            s.as_bytes().iter().map(|byte| {
-                                let key = format!("<0x{:02X}>", byte);
-                                self.vocab.get(&key).copied().unwrap_or(self.unk_ids())
-                            }).collect()
-                        }
-                    }).collect();
+
+                    for ch in &chars {
+                        local_chars.insert(ch.clone());
+                    }
+
+                    let ids: Vec<u32> = chars
+                        .iter()
+                        .flat_map(|s| {
+                            if let Some(&id) = self.vocab.get(s) {
+                                vec![id]
+                            } else {
+                                s.as_bytes()
+                                    .iter()
+                                    .map(|byte| {
+                                        let key = format!("<0x{:02X}>", byte);
+                                        self.vocab.get(&key).copied().unwrap_or(self.unk_ids())
+                                    })
+                                    .collect()
+                            }
+                        })
+                        .collect();
 
                     *local_segs.entry(ids).or_insert(0) += 1;
                 }
                 (local_segs, local_chars)
-             }).collect();
+            })
+            .collect();
 
         let mut word_segments: FastHashMap<Vec<u32>, usize> = FastHashMap::default();
         let mut init_chars: HashSet<String> = HashSet::new();
         for (segs, chars) in init_results {
-            for (seg, count) in segs { *word_segments.entry(seg).or_insert(0) += count; }
+            for (seg, count) in segs {
+                *word_segments.entry(seg).or_insert(0) += count;
+            }
             init_chars.extend(chars);
         }
 
@@ -985,7 +1240,9 @@ impl BPETokenizer {
             }
         }
         for (token, &id) in &self.vocab {
-            self.reverse_vocab.entry(id).or_insert_with(|| token.clone());
+            self.reverse_vocab
+                .entry(id)
+                .or_insert_with(|| token.clone());
         }
 
         println!("Initial vocab size: {}", self.vocab.len());
@@ -1006,16 +1263,20 @@ impl BPETokenizer {
 
         while self.vocab.len() < config.vocab_size {
             // Find best pair
-            let Some((best_pair, max_freq)) = pair_freq.iter()
-            .max_by_key(|(_, f)| *f)
-            .map(|(pair, freq)|(*pair, *freq))
+            let Some((best_pair, max_freq)) = pair_freq
+                .iter()
+                .max_by_key(|(_, f)| *f)
+                .map(|(pair, freq)| (*pair, *freq))
             else {
                 println!("No valid pairs remain.");
                 break;
             };
-            
+
             if max_freq < config.min_frequency {
-                println!("Stopping: max pair freq {} < min_frequency {}", max_freq, config.min_frequency);
+                println!(
+                    "Stopping: max pair freq {} < min_frequency {}",
+                    max_freq, config.min_frequency
+                );
                 break;
             }
 
@@ -1034,6 +1295,18 @@ impl BPETokenizer {
                 continue;
             }
 
+            // Check if one of the pair is a byte token and the other is not
+            let id_is_byte = |id: u32| -> bool {
+                self.reverse_vocab
+                    .get(&id)
+                    .map(|t| t.len() >= 6 && t.starts_with("<0x") && t.as_bytes()[5] == b'>')
+                    .unwrap_or(false)
+            };
+            if id_is_byte(best_pair.0) ^ id_is_byte(best_pair.1) {
+                pair_freq.remove(&best_pair);
+                continue;
+            }
+
             let new_id = current_id;
             self.vocab.insert(new_token.clone(), new_id);
             self.reverse_vocab.insert(new_id, new_token.clone());
@@ -1044,7 +1317,13 @@ impl BPETokenizer {
             if config.show_progress {
                 println!(
                     "Merge {}/{}: {:?} + {:?} (freq {}) → {:?} (vocab {})",
-                    merges_done, n_merges, t1, t2, max_freq, new_token, self.vocab.len()
+                    merges_done,
+                    n_merges,
+                    t1,
+                    t2,
+                    max_freq,
+                    new_token,
+                    self.vocab.len()
                 );
             }
 
@@ -1059,7 +1338,8 @@ impl BPETokenizer {
             let affected: Vec<(Vec<u32>, usize)> = word_segments
                 .iter()
                 .filter(|(seg, _)| {
-                    seg.windows(2).any(|w| w[0] == best_pair.0 && w[1] == best_pair.1)
+                    seg.windows(2)
+                        .any(|w| w[0] == best_pair.0 && w[1] == best_pair.1)
                 })
                 .map(|(seg, &count)| (seg.clone(), count))
                 .collect();
@@ -1088,7 +1368,11 @@ impl BPETokenizer {
             }
         }
 
-        println!("Training complete. Merges: {}, Vocab: {}", self.merges.len(), self.vocab.len());
+        println!(
+            "Training complete. Merges: {}, Vocab: {}",
+            self.merges.len(),
+            self.vocab.len()
+        );
 
         // Build lookup tables once after training
         self.build_merge_lookups();
@@ -1097,21 +1381,21 @@ impl BPETokenizer {
     // =========== Incremental training ============
 
     // Takes an iterator of documents, processes in chunks,
-    // and performs merges every N chunks. 
+    // and performs merges every N chunks.
     // State is maintained in IncrementalTrainingState.
     pub fn incremental_stream_train<I>(
         &mut self,
         corpus: I,
         config: IncrementalTrainingConfig,
         state: &mut IncrementalTrainingState,
-    ) where I: Iterator<Item = String> {
+    ) where
+        I: Iterator<Item = String>,
+    {
         println!("Starting Incremental BPE Training");
         self.initialize_base_vocabulary(&config);
         state.current_vocab_size = self.vocab.len();
 
         let mut chunk_buffer = Vec::with_capacity(config.chunk_size);
-
-
 
         for (doc_idx, document) in corpus.enumerate() {
             chunk_buffer.push(document);
@@ -1127,12 +1411,16 @@ impl BPETokenizer {
                 if state.chunks_processed % 50 == 0 {
                     state.aggressive_cleanup(2, 100);
                 }
-                if state.chunks_processed >= 3 && state.chunks_processed % config.merge_frequency == 0 {
+                if state.chunks_processed >= 3
+                    && state.chunks_processed % config.merge_frequency == 0
+                {
                     self.perform_incremental_merges(state, &config);
                 }
                 chunk_buffer.clear();
 
-                if self.vocab.len() >= config.vocab_size { break; }
+                if self.vocab.len() >= config.vocab_size {
+                    break;
+                }
             }
         }
 
@@ -1145,7 +1433,11 @@ impl BPETokenizer {
         state.aggressive_cleanup(1, 200);
         self.perform_incremental_merges(state, &config);
         self.build_merge_lookups();
-        println!("Incremental training complete. Docs: {}, Vocab: {}", state.total_documents, self.vocab.len());
+        println!(
+            "Incremental training complete. Docs: {}, Vocab: {}",
+            state.total_documents,
+            self.vocab.len()
+        );
     }
 
     pub fn process_chunk_incremental(
@@ -1163,39 +1455,55 @@ impl BPETokenizer {
                 for word in PRE_TOKENIZER_RE.find_iter(doc.as_str()).map(|m| m.as_str()) {
                     let first = word.chars().next().unwrap_or(' ');
                     let is_word = if first == ' ' || first == '\t' {
-                        word.chars().nth(1).map(|c| c.is_alphanumeric()).unwrap_or(false)
+                        word.chars()
+                            .nth(1)
+                            .map(|c| c.is_alphanumeric())
+                            .unwrap_or(false)
                     } else {
                         first.is_alphanumeric()
                     };
 
                     let word_normalized = if is_word {
-                    let leading = if word.starts_with(' ') { " " } 
-                                else if word.starts_with('\t') { "\t" }
-                                else { "" };
+                        let leading = if word.starts_with(' ') {
+                            " "
+                        } else if word.starts_with('\t') {
+                            "\t"
+                        } else {
+                            ""
+                        };
                         let word_part = word.trim_start_matches(|c: char| c == ' ' || c == '\t');
                         format!("{}{}", leading, NORMALIZER.normalize(word_part))
                     } else {
                         word.to_string()
                     };
 
-                    let mut chars: Vec<String> = word_normalized.chars().map(|c| c.to_string()).collect();
+                    let mut chars: Vec<String> =
+                        word_normalized.chars().map(|c| c.to_string()).collect();
                     if is_word {
                         chars.push(self.end_of_word_token.clone());
                     }
 
-                    for ch in &chars { local_chars.insert(ch.clone()); }
+                    for ch in &chars {
+                        local_chars.insert(ch.clone());
+                    }
                     // in train() and process_chunk_incremental()
-                    let ids: Vec<u32> = chars.iter().flat_map(|s| {
-                        if let Some(&id) = self.vocab.get(s) {
-                            vec![id]
-                        } else {
-                            s.as_bytes().iter().map(|byte| {
-                                let key = format!("<0x{:02X}>", byte);
-                                self.vocab.get(&key).copied().unwrap_or(self.unk_ids())
-                            }).collect()
-                        }
-                    }).collect();
-                   
+                    let ids: Vec<u32> = chars
+                        .iter()
+                        .flat_map(|s| {
+                            if let Some(&id) = self.vocab.get(s) {
+                                vec![id]
+                            } else {
+                                s.as_bytes()
+                                    .iter()
+                                    .map(|byte| {
+                                        let key = format!("<0x{:02X}>", byte);
+                                        self.vocab.get(&key).copied().unwrap_or(self.unk_ids())
+                                    })
+                                    .collect()
+                            }
+                        })
+                        .collect();
+
                     *local_segs.entry(ids).or_insert(0) += 1;
                 }
                 (local_segs, local_chars)
@@ -1223,11 +1531,14 @@ impl BPETokenizer {
         state: &mut IncrementalTrainingState,
         config: &IncrementalTrainingConfig,
     ) {
-        if self.vocab.len() >= config.vocab_size { return; }
+        if self.vocab.len() >= config.vocab_size {
+            return;
+        }
 
         println!("Performing incremental merges...");
 
-        state.pair_freq = state.word_segments
+        state.pair_freq = state
+            .word_segments
             .par_iter()
             .map(|(seg, &count)| {
                 let mut local: FastHashMap<TokenPair, usize> = FastHashMap::default();
@@ -1237,18 +1548,27 @@ impl BPETokenizer {
                 local
             })
             .reduce(FastHashMap::default, |mut a, b| {
-                for (p, c) in b { *a.entry(p).or_insert(0) += c; }
+                for (p, c) in b {
+                    *a.entry(p).or_insert(0) += c;
+                }
                 a
             });
 
         let mut merges_this_round = 0;
-        while self.vocab.len() < config.vocab_size { // Find best pair
-            let Some((best_pair, max_freq)) = state.pair_freq.iter()
-            .max_by_key(|(_, f)| *f)
-            .map(|(&pair, &freq)| (pair, freq))  
-            else { break; };
+        while self.vocab.len() < config.vocab_size {
+            // Find best pair
+            let Some((best_pair, max_freq)) = state
+                .pair_freq
+                .iter()
+                .max_by_key(|(_, f)| *f)
+                .map(|(&pair, &freq)| (pair, freq))
+            else {
+                break;
+            };
 
-            if max_freq < config.min_frequency { break; }
+            if max_freq < config.min_frequency {
+                break;
+            }
 
             let t1 = self.get_token_from_id(best_pair.0).clone();
             let t2 = self.get_token_from_id(best_pair.1).clone();
@@ -1270,22 +1590,35 @@ impl BPETokenizer {
             self.merges.push((best_pair, new_id));
 
             if config.show_progress {
-                println!("  Merge {}: {} + {} → '{}' (freq: {})", self.merges.len(), t1, t2, new_token, max_freq);
+                println!(
+                    "  Merge {}: {} + {} → '{}' (freq: {})",
+                    self.merges.len(),
+                    t1,
+                    t2,
+                    new_token,
+                    max_freq
+                );
             }
 
             // Incremental update
             state.pair_freq.remove(&best_pair);
 
-            let affected: Vec<(Vec<u32>, usize)> = state.word_segments
+            let affected: Vec<(Vec<u32>, usize)> = state
+                .word_segments
                 .iter()
-                .filter(|(seg, _)| seg.windows(2).any(|w| w[0] == best_pair.0 && w[1] == best_pair.1))
+                .filter(|(seg, _)| {
+                    seg.windows(2)
+                        .any(|w| w[0] == best_pair.0 && w[1] == best_pair.1)
+                })
                 .map(|(seg, &count)| (seg.clone(), count))
                 .collect();
 
             for (old_seg, count) in affected {
                 for w in old_seg.windows(2) {
                     let p = TokenPair(w[0], w[1]);
-                    if let Some(f) = state.pair_freq.get_mut(&p) { *f = f.saturating_sub(count); }
+                    if let Some(f) = state.pair_freq.get_mut(&p) {
+                        *f = f.saturating_sub(count);
+                    }
                 }
                 let mut new_seg = old_seg.clone();
                 Self::merge_pair_inplace(&mut new_seg, &best_pair, new_id);
@@ -1314,7 +1647,9 @@ impl BPETokenizer {
                 id
             });
             self.special_tokens_ids.insert(token.clone(), *id);
-            self.reverse_vocab.entry(*id).or_insert_with(|| token.clone());
+            self.reverse_vocab
+                .entry(*id)
+                .or_insert_with(|| token.clone());
         }
     }
     // =========== Serialization ============
@@ -1356,7 +1691,10 @@ impl BPETokenizer {
             tokenizer: &'a BPETokenizer,
             state: &'a IncrementalTrainingState,
         }
-        let checkpoint = Checkpoint { tokenizer: self, state: &state };
+        let checkpoint = Checkpoint {
+            tokenizer: self,
+            state: &state,
+        };
         let temp = format!("{}.tmp", path);
         {
             let writer = BufWriter::new(File::create(&temp)?);
@@ -1370,9 +1708,14 @@ impl BPETokenizer {
         Ok(())
     }
 
-    pub fn load_checkpoint(path: &str) -> Result<(Self, IncrementalTrainingState), Box<dyn std::error::Error>> {
+    pub fn load_checkpoint(
+        path: &str,
+    ) -> Result<(Self, IncrementalTrainingState), Box<dyn std::error::Error>> {
         #[derive(Deserialize)]
-        struct Checkpoint { tokenizer: BPETokenizer, state: IncrementalTrainingState }
+        struct Checkpoint {
+            tokenizer: BPETokenizer,
+            state: IncrementalTrainingState,
+        }
         let reader = BufReader::new(File::open(path)?);
         let mut checkpoint: Checkpoint = if path.ends_with(".json") {
             serde_json::from_reader(reader)?
@@ -1386,53 +1729,89 @@ impl BPETokenizer {
 
 // =========== Thread-local tokenizer for encode_batch ============
 // Holds a reference to the shared immutable tokenizer data and its own LRU cache.
-// No full clone of vocab/merges/lookups per thread.
+// No full clone of vocab/merges/lookups per thread.// =========== Thread-local tokenizer for encode_batch ============
+/// Read-only container for shared tokenizer data accessed across Rayon worker threads.
+///
+/// Rather than cloning heavy structures (vocabulary maps, merge tables) per thread,
+/// worker threads hold an `Arc<SharedTokenizerData>` containing references to the
+/// main `BPETokenizer` instance.
 struct SharedTokenizerData<'a> {
+    /// Forward vocabulary mapping string tokens to token IDs
     vocab: &'a FastHashMap<String, u32>,
+    /// A boolean flag indicating whether to strip accents during normalization
+    strip_accents: bool,
+    /// User-added atomic tokens that bypass BPE merging
+    added_tokens: &'a FastHashMap<String, u32>,
+    /// Priority map for BPE pairs (lower rank value = higher merge priority)
     merge_rank: &'a FastHashMap<TokenPair, usize>,
+    /// Output token ID resulting from merging a specific TokenPair
     merge_id: &'a FastHashMap<TokenPair, u32>,
+    /// Map of designated special tokens (e.g., <pad>, <s>, </s>)
     special_tokens_ids: &'a FastHashMap<String, u32>,
+    /// String delimiter denoting end of word boundary (e.g., "⁄")
     end_of_word_token: &'a str,
+    /// Literal representation for unknown tokens
     unknown_tokens: &'a str,
 }
 
-// SAFETY: SharedTokenizerData only holds shared references into the Arc'd tokenizer.
-// All fields are read-only during encode_batch. Rayon requires Send; &T is Send when T: Sync,
-// and all our field types are Sync.
+// SAFETY: SharedTokenizerData only holds immutable references (&'a T) into the parent
+// tokenizer owned inside an Arc. All underlying maps are read-only during parallel execution.
+// Rayon requires worker payloads to implement Send/Sync; FastHashMap and primitive references are Sync.
 unsafe impl<'a> Send for SharedTokenizerData<'a> {}
 unsafe impl<'a> Sync for SharedTokenizerData<'a> {}
 
+/// Thread-local wrapper executing BPE tokenization inside parallel Rayon batch loops.
+///
+/// Each worker thread manages its own dedicated `ThreadLocalTokenizer` instance containing
+/// an isolated LRU lookup cache to avoid lock contention across CPU cores.
 struct ThreadLocalTokenizer<'a> {
+    /// Shared reference pointer to master vocabulary and lookup tables
     data: Arc<SharedTokenizerData<'a>>,
+    /// Thread-local LRU cache mapping raw text inputs to tokenized ID vectors
     cache: LruCache<String, Arc<Vec<u32>>>,
 }
 
 impl<'a> ThreadLocalTokenizer<'a> {
+    /// Constructs a new thread-local tokenizer with a custom LRU cache capacity.
     fn new(data: Arc<SharedTokenizerData<'a>>, cache_size: usize) -> Self {
-        Self { data, cache: LruCache::new(cache_size) }
+        Self {
+            data,
+            cache: LruCache::new(cache_size),
+        }
     }
 
+    /// Helper to look up the ID corresponding to the unknown token string (<unk>).
     fn unk_id(&self) -> u32 {
-        *self.data.special_tokens_ids.get(self.data.unknown_tokens)
-            .expect("unknown token missing")
+        *self
+            .data
+            .special_tokens_ids
+            .get(self.data.unknown_tokens)
+            .expect("unknown token missing from special_tokens_ids registry")
     }
 
+    /// Encodes text (and optional secondary pair text_b) into a structured `Encoding` payload.
+    ///
+    /// Handles special token injection, padding, truncation, and attention mask construction
+    /// for pair inputs used in transformer models.
     fn encode(
         &mut self,
         text: &str,
-        text_b: Option<&str>,  // now used
+        text_b: Option<&str>,
         max_length: Option<usize>,
         padding: bool,
         truncation: bool,
         add_special_tokens: bool,
     ) -> TokenizedResult<Encoding> {
+        // Encode primary text segment
         let ids_a = self.encode_text_inner(text)?;
-        
+
+        // Encode optional secondary text segment (e.g., sentence B in pair classification)
         let ids_b = match text_b {
             Some(b) => Some(self.encode_text_inner(b)?),
             None => None,
         };
 
+        // Construct complete Encoding payload containing attention masks & type IDs
         Ok(Encoding::build_with_pair(
             ids_a,
             ids_b,
@@ -1444,6 +1823,10 @@ impl<'a> ThreadLocalTokenizer<'a> {
         ))
     }
 
+    /// Inner execution method for converting a raw text string into token IDs.
+    ///
+    /// Checks special tokens, added tokens, and the thread-local LRU cache before
+    /// falling back to pre-tokenization, normalization, and BPE pair merging.
     fn encode_text_inner(&mut self, text: &str) -> TokenizedResult<Vec<u32>> {
         let unk = self.unk_id();
         encode_text_inner(
@@ -1451,13 +1834,14 @@ impl<'a> ThreadLocalTokenizer<'a> {
             &self.data.vocab,
             &self.data.merge_rank,
             &self.data.merge_id,
+            &self.data.added_tokens,
             &self.data.special_tokens_ids,
+            self.data.strip_accents,
             &self.data.end_of_word_token,
             unk,
-            &mut self.cache,
+            &mut self.cache, // Mutate thread-local cache independently
         )
     }
-
 }
 
 // =========== STATISTICS ============
